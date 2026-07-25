@@ -1,0 +1,30 @@
+[project]
+name = "voicebridge"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.140.0",
+    "google-genai>=2.14.0",
+    "httpx>=0.28.1",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.2",
+    "pydub>=0.25.1",
+    "python-dotenv>=1.2.2",
+    "python-multipart>=0.0.32",
+    "uvicorn[standard]>=0.51.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"
+testpaths = ["tests", "evals"]
+markers = ["live: makes real, paid API calls"]
+# Paid tests are opt-in. A bare `pytest` must never quietly spend money or take minutes;
+# run the evals deliberately with `-m live`.
+addopts = "-m 'not live'"
