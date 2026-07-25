@@ -6,3 +6,12 @@
 .env
 .env.*
 !.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+data/
+evals/fixtures/segments/
+.pytest_cache/
+evals/fixtures/probes/
