@@ -63,7 +63,7 @@ app.add_middleware(
 # Relay results held between /relay and /confirm, so the confirm can record what we
 # originally heard against what the user says they actually meant. In memory, dropped on
 # session clear -- this is the raw material of the learning loop, nothing more.
-_pending: dict[str, tuple[str, str]] = {}  # relay_id -> (user_id, heard_text)
+_pending: dict[str, tuple[str, str, str]] = {}  # relay_id -> (session_id, user_id, heard_text)
 
 
 @app.get("/health")
@@ -95,6 +95,12 @@ async def ambient(session_id: str, audio: UploadFile = File(...)) -> AmbientResp
 
     try:
         text = await recogniser.transcribe_ambient(data, audio.content_type or "audio/webm")
+    except recogniser.UnusableAudio as exc:
+        # Best-effort by design. Ambient is context, not the utterance someone is waiting
+        # on, so an undecodable chunk is dropped quietly rather than surfaced as an error
+        # that would interrupt a conversation in progress.
+        log.warning("ambient chunk not decodable, dropping: %s", exc)
+        return AmbientResponse(text="", appended=False)
     finally:
         del data  # explicit, because this is the one thing we promised not to keep
 
@@ -128,6 +134,10 @@ async def relay(session_id: str, audio: UploadFile = File(...)) -> RelayResult:
         samples, control = await recogniser.recognise_with_control(
             data, mime, prompt, control_prompt
         )
+    except recogniser.UnusableAudio as exc:
+        # 400, not 503: the recording is malformed, we are not down. Distinct from both
+        # "we could not hear you" and "we are broken", because the fix is different again.
+        raise HTTPException(400, f"unusable audio: {exc}") from exc
     except recogniser.RecognitionUnavailable as exc:
         # 503, not an empty recovery. The user must never be told "I couldn't understand
         # you" because our API key was missing.
@@ -135,7 +145,7 @@ async def relay(session_id: str, audio: UploadFile = File(...)) -> RelayResult:
 
     result = gate.fuse(samples, relay_id=uuid.uuid4().hex, control=control)
 
-    _pending[result.relay_id] = (session.user_id, result.best)
+    _pending[result.relay_id] = (session_id, session.user_id, result.best)
     return result
 
 
@@ -149,15 +159,18 @@ async def confirm(relay_id: str, req: ConfirmRequest) -> Response:
     """
     if relay_id not in _pending:
         raise HTTPException(404, f"unknown relay_id {relay_id}")
-    user_id, heard = _pending.pop(relay_id)
+    chosen_text = req.chosen_text.strip()
+    if not chosen_text:
+        raise HTTPException(400, "chosen_text must not be empty")
+    _, user_id, heard = _pending.pop(relay_id)
 
-    profile_store.add_pair(user_id, heard=heard, said=req.chosen_text)
+    profile_store.add_pair(user_id, heard=heard, said=chosen_text)
 
-    audio = await tts.synthesize(req.chosen_text, req.voice_id)
+    audio = await tts.synthesize(chosen_text, req.voice_id)
     return Response(
         content=audio,
         media_type="audio/mpeg",
-        headers={"X-Relay-Id": relay_id, "X-Spoken-Text": req.chosen_text},
+        headers={"X-Relay-Id": relay_id, "X-Spoken-Text": chosen_text},
     )
 
 
@@ -181,7 +194,12 @@ async def thread(session_id: str, speaker: Speaker | None = None) -> ThreadRespo
 async def clear_session(session_id: str) -> ClearedResponse:
     """Ends the session and drops the thread, including everything the other person
     said. Nothing about them survives this call."""
-    return ClearedResponse(cleared=session_store.clear(session_id))
+    cleared = session_store.clear(session_id)
+    if cleared:
+        for relay_id, (pending_session_id, _, _) in list(_pending.items()):
+            if pending_session_id == session_id:
+                _pending.pop(relay_id, None)
+    return ClearedResponse(cleared=cleared)
 
 
 @app.get("/voices", response_model=list[Voice])

@@ -1,46 +1,55 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import {
-  ConfirmView,
-  WordFixView,
-  alternativesFor,
-} from "@/components/TranscriptConfirm";
+import { useEffect, useState } from "react";
+import { ConfirmView, WordFixView } from "@/components/TranscriptConfirm";
 import { BigButton } from "@/components/ui/BigButton";
 import { SpeakBlob } from "@/components/ui/SpeakBlob";
 import { SuggestionChip } from "@/components/ui/SuggestionChip";
 import { Toast } from "@/components/ui/Toast";
 import {
+  ApiError,
+  confirmRelay,
+  createSession,
+  deleteSession,
+  getUserId,
+  postRelay,
+  type ConfirmSource,
+  type RelayResult,
+  type WordOption,
+} from "@/lib/api";
+import { useRecorder } from "@/lib/use-recorder";
+import {
   shareSuggestions,
-  shareTranscriptDefault,
   wordsFromTranscript,
 } from "@/lib/mock-data";
 
-type ShareState = "idle" | "recording" | "confirm" | "wordFix" | "share";
+type ShareState = "idle" | "recording" | "processing" | "confirm" | "wordFix" | "share";
 
 type ShareKind = "avatar" | "voice" | "text";
 
 export default function SharePage() {
   const [state, setState] = useState<ShareState>("idle");
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [relayResult, setRelayResult] = useState<RelayResult | null>(null);
   const [selectedSuggestion, setSelectedSuggestion] = useState<string | null>(
     null,
   );
-  const [words, setWords] = useState<string[]>(
-    wordsFromTranscript(shareTranscriptDefault),
-  );
+  const [words, setWords] = useState<WordOption[]>([]);
+  const [source, setSource] = useState<ConfirmSource>("best");
+  const [hasEdited, setHasEdited] = useState(false);
+  const [voiceMemo, setVoiceMemo] = useState<Blob | null>(null);
   const [showWrongActions, setShowWrongActions] = useState(false);
   const [selectedWordIndex, setSelectedWordIndex] = useState<number | null>(
     null,
   );
   const [toast, setToast] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const recorder = useRecorder();
 
-  const transcript = words.join(" ");
+  const transcript =
+    hasEdited || !relayResult ? words.map((word) => word.word).join(" ") : relayResult.best;
   const selectedWord =
     selectedWordIndex !== null ? words[selectedWordIndex] : null;
-  const alternatives = useMemo(
-    () => (selectedWord ? alternativesFor(selectedWord) : []),
-    [selectedWord],
-  );
 
   useEffect(() => {
     if (!toast) return;
@@ -48,24 +57,59 @@ export default function SharePage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  useEffect(() => {
-    if (state !== "recording") return;
-    const t = setTimeout(() => {
-      const next = selectedSuggestion
-        ? selectedSuggestion.endsWith(".")
-          ? selectedSuggestion
-          : `${selectedSuggestion}.`
-        : shareTranscriptDefault;
-      setWords(wordsFromTranscript(next));
-      setShowWrongActions(false);
-      setSelectedWordIndex(null);
-      setState("confirm");
-    }, 1600);
-    return () => clearTimeout(t);
-  }, [state, selectedSuggestion]);
-
   function showComingSoon(label: string) {
     setToast(`${label} — coming soon`);
+  }
+
+  async function startRecording() {
+    const oldSessionId = sessionId;
+    if (oldSessionId) {
+      await deleteSession(oldSessionId).catch(() => undefined);
+      setSessionId(null);
+    }
+    setErrorMessage(null);
+    setRelayResult(null);
+    setVoiceMemo(null);
+    setWords([]);
+    setHasEdited(false);
+    setShowWrongActions(false);
+    setSelectedWordIndex(null);
+    let createdSessionId: string | null = null;
+    try {
+      const session = await createSession(getUserId());
+      createdSessionId = session.session_id;
+      setSessionId(session.session_id);
+      setState("recording");
+      await recorder.start();
+    } catch {
+      if (createdSessionId) {
+        await deleteSession(createdSessionId).catch(() => undefined);
+        setSessionId(null);
+      }
+      setToast("Recording is not available in this browser");
+      setState("idle");
+    }
+  }
+
+  async function stopRecording() {
+    if (!sessionId) {
+      setErrorMessage("Session expired — record again.");
+      setState("idle");
+      return;
+    }
+    setState("processing");
+    try {
+      const audio = await recorder.stop();
+      const result = await postRelay(sessionId, audio);
+      setRelayResult(result);
+      setWords(result.words.length ? result.words : toWordOptions(result.best));
+      setSource("best");
+      setHasEdited(false);
+      setState("confirm");
+    } catch (err) {
+      setErrorMessage(messageForError(err));
+      setState("idle");
+    }
   }
 
   async function openSystemShare(kind: ShareKind) {
@@ -74,15 +118,30 @@ export default function SharePage() {
       voice: "Voice memo",
       text: "Text",
     };
+
+    if (kind === "avatar") {
+      showComingSoon("Avatar video");
+      return;
+    }
+
     const title = `Heard — ${labels[kind]}`;
-    const text =
-      kind === "text"
-        ? transcript
-        : `${transcript}\n\nShared as ${labels[kind]} via Heard`;
+    let payload: ShareData = { title, text: transcript };
+
+    if (kind === "voice") {
+      const audio = await ensureVoiceMemo();
+      if (!audio) return;
+      const file = new File([audio], "heard-message.mp3", { type: "audio/mpeg" });
+      payload =
+        typeof navigator !== "undefined" &&
+        typeof navigator.canShare === "function" &&
+        navigator.canShare({ files: [file] })
+          ? { title, text: transcript, files: [file] }
+          : { title, text: `${transcript}\n\nVoice memo is ready in Heard.` };
+    }
 
     if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
       try {
-        await navigator.share({ title, text });
+        await navigator.share(payload);
         return;
       } catch (err) {
         // User dismissed the sheet — not an error to surface
@@ -91,18 +150,49 @@ export default function SharePage() {
     }
 
     try {
-      await navigator.clipboard?.writeText(text);
+      await navigator.clipboard?.writeText(payload.text ?? transcript);
       setToast("Copied — open Share from your device if the sheet didn’t appear");
     } catch {
       setToast("Sharing isn’t available in this browser");
     }
   }
 
+  async function ensureVoiceMemo(): Promise<Blob | null> {
+    if (voiceMemo) return voiceMemo;
+    if (!relayResult || !transcript.trim()) return null;
+    try {
+      const audio = await confirmRelay(relayResult.relay_id, transcript, source);
+      setVoiceMemo(audio);
+      if (sessionId) {
+        await deleteSession(sessionId).catch(() => undefined);
+        setSessionId(null);
+      }
+      return audio;
+    } catch (err) {
+      setToast(messageForError(err));
+      return null;
+    }
+  }
+
+  function pickSentence(sentence: string) {
+    setWords(toWordOptions(sentence));
+    setSource("alternate");
+    setHasEdited(true);
+    setShowWrongActions(false);
+    setSelectedWordIndex(null);
+  }
+
   function applyAlternative(alt: string) {
     if (selectedWordIndex === null) return;
     setWords((prev) =>
-      prev.map((w, i) => (i === selectedWordIndex ? alt : w)),
+      prev.map((option, i) =>
+        i === selectedWordIndex
+          ? { ...option, word: alt, alternatives: [], agreement: 1 }
+          : option,
+      ),
     );
+    setSource("alternate");
+    setHasEdited(true);
     setState("confirm");
     setShowWrongActions(true);
     setSelectedWordIndex(null);
@@ -154,7 +244,7 @@ export default function SharePage() {
 
           <div className="mt-auto flex flex-col items-center pt-10">
             <SpeakBlob
-              onClick={() => setState("recording")}
+              onClick={() => void startRecording()}
               aria-label="Record a message"
               size="lg"
               caption={
@@ -173,26 +263,47 @@ export default function SharePage() {
             Recording
           </p>
           <SpeakBlob
+            onClick={() => void stopRecording()}
             mode="recording"
             size="lg"
             aria-label="Recording in progress"
           />
-          <p className="mt-8 text-base text-ink-soft">Listening carefully…</p>
+          <p className="mt-8 text-base text-ink-soft">Tap to stop when you are done.</p>
         </div>
       )}
 
-      {state === "confirm" && (
+      {state === "processing" && (
+        <div className="flex flex-1 flex-col items-center justify-center animate-fade-up">
+          <div className="mb-6">
+            <SpeakBlob aria-label="Processing" label="…" />
+          </div>
+          <p className="text-[24px] font-semibold tracking-tight text-ink">
+            Clarifying your words…
+          </p>
+          <p className="mt-3 max-w-[15rem] text-center text-sm text-ink-mute">
+            Taking a careful listen. This can take around twenty seconds.
+          </p>
+        </div>
+      )}
+
+      {state === "confirm" && relayResult && (
         <ConfirmView
+          best={relayResult.best}
           words={words}
+          confidence={relayResult.confidence}
+          needsConfirmation={relayResult.needs_confirmation}
+          alternates={relayResult.alternates}
           showWrongActions={showWrongActions}
           selectedWordIndex={selectedWordIndex}
+          errorMessage={errorMessage}
           onCorrect={() => setState("share")}
           onWrong={() => setShowWrongActions(true)}
           onRerecord={() => {
             setShowWrongActions(false);
             setSelectedWordIndex(null);
-            setState("recording");
+            void startRecording();
           }}
+          onPickSentence={pickSentence}
           onSelectWord={(i) => {
             setSelectedWordIndex(i);
             setState("wordFix");
@@ -202,8 +313,8 @@ export default function SharePage() {
 
       {state === "wordFix" && selectedWord && (
         <WordFixView
-          word={selectedWord}
-          alternatives={alternatives}
+          option={selectedWord}
+          alternatives={selectedWord.alternatives}
           onPick={applyAlternative}
           onBack={() => {
             setState("confirm");
@@ -257,6 +368,27 @@ export default function SharePage() {
       )}
     </div>
   );
+}
+
+function toWordOptions(text: string): WordOption[] {
+  return wordsFromTranscript(text).map((word, index) => ({
+    index,
+    word,
+    alternatives: [],
+    agreement: 1,
+  }));
+}
+
+function messageForError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.kind === "unavailable") {
+      return "Something's wrong on our end — try again in a moment.";
+    }
+    if (err.kind === "not_found") {
+      return "Session expired — record again.";
+    }
+  }
+  return "Something went wrong — try again.";
 }
 
 function ShareChoice({

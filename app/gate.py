@@ -20,7 +20,7 @@ from collections import Counter
 from difflib import SequenceMatcher
 
 from app.config import settings
-from app.models import RecognitionSample, RelayResult
+from app.models import RecognitionSample, RelayResult, WordOption
 from app.prompt_compiler import normalize
 
 # Confidence is sample agreement, full stop. The model's own `confidence` field is read
@@ -121,6 +121,7 @@ def fuse(
             confidence=0.0,
             alternates=[],
             uncertain_words=[],
+            words=[],
             needs_confirmation=True,
         )
 
@@ -136,12 +137,14 @@ def fuse(
             confidence=0.0,
             alternates=_collect_alternates(samples, exclude=""),
             uncertain_words=[],
+            words=[],
             needs_confirmation=True,
         )
 
-    text, uncertain, word_agreement = consensus(best_texts)
+    text, uncertain, word_agreement, words = consensus(best_texts)
     if not text:
         text = _modal(best_texts)
+        words = _words_for_text(text)
 
     confidence = word_agreement
 
@@ -164,6 +167,7 @@ def fuse(
         confidence=round(confidence, 3),
         alternates=_collect_alternates(samples, exclude=text),
         uncertain_words=uncertain or _collect_uncertain(samples),
+        words=words,
         needs_confirmation=confidence < settings.confidence_threshold,
     )
 
@@ -187,7 +191,9 @@ def _align_to(backbone: list[str], other: list[str]) -> list[str | None]:
     return out
 
 
-def consensus(texts: list[str], min_support: float = 0.5) -> tuple[str, list[str], float]:
+def consensus(
+    texts: list[str], min_support: float = 0.5
+) -> tuple[str, list[str], float, list[WordOption]]:
     """Build one transcript by voting word by word across samples.
 
     Picking a single best sample throws away information: in testing, different samples
@@ -200,13 +206,13 @@ def consensus(texts: list[str], min_support: float = 0.5) -> tuple[str, list[str
       - A word only a minority heard gets dropped rather than spoken. Silence about a
         word we are unsure of beats inventing one.
 
-    Returns (text, uncertain_words, mean per-word agreement).
+    Returns (text, uncertain_words, mean per-word agreement, per-word options).
     """
     token_lists = [normalize(t) for t in texts if t.strip()]
     if not token_lists:
-        return "", [], 0.0
+        return "", [], 0.0, []
     if len(token_lists) == 1:
-        return texts[0], [], 1.0
+        return texts[0], [], 1.0, _words_for_text(texts[0])
 
     # Backbone is the sample closest to all the others -- the consensus middle rather
     # than whichever happened to be generated first.
@@ -223,6 +229,7 @@ def consensus(texts: list[str], min_support: float = 0.5) -> tuple[str, list[str
     words: list[str] = []
     uncertain: list[str] = []
     agreements: list[float] = []
+    word_options: list[WordOption] = []
 
     for position, word in enumerate(backbone):
         votes = [word] + [a[position] for a in aligned]
@@ -237,13 +244,33 @@ def consensus(texts: list[str], min_support: float = 0.5) -> tuple[str, list[str
         if len(present) / len(votes) < min_support:
             continue
 
+        alternatives = [
+            candidate
+            for candidate, _ in counts.most_common()
+            if candidate != winner
+        ]
+        word_options.append(
+            WordOption(
+                index=len(words),
+                word=winner,
+                alternatives=alternatives,
+                agreement=round(share, 3),
+            )
+        )
         words.append(winner)
         if share < 1.0:
             uncertain.append(winner)
 
     text = " ".join(words)
     mean_agreement = sum(agreements) / len(agreements) if agreements else 0.0
-    return text, uncertain, mean_agreement
+    return text, uncertain, mean_agreement, word_options
+
+
+def _words_for_text(text: str) -> list[WordOption]:
+    return [
+        WordOption(index=index, word=word, alternatives=[], agreement=1.0)
+        for index, word in enumerate(normalize(text))
+    ]
 
 
 def _modal(texts: list[str]) -> str:

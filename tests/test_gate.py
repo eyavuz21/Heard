@@ -111,6 +111,22 @@ def test_alternates_come_from_disagreeing_samples_and_exclude_the_answer() -> No
     assert "a flat white please" not in result.alternates
 
 
+def test_word_options_come_from_position_votes() -> None:
+    result = fuse(
+        [
+            sample("a flat white please"),
+            sample("a black white please"),
+            sample("a flat white please"),
+        ],
+        relay_id="r",
+    )
+
+    assert [word.word for word in result.words] == ["a", "flat", "white", "please"]
+    flat = result.words[1]
+    assert flat.alternatives == ["black"]
+    assert flat.agreement == 0.667
+
+
 def test_no_samples_returns_empty_not_a_guess() -> None:
     result = fuse([], relay_id="r")
     assert result.best == ""

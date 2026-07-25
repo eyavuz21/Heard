@@ -85,6 +85,10 @@ Body: `multipart/form-data`, field `audio` — the audio held between their two 
      "confidence": 0.86,
      "alternates": ["a flat white to go"],
      "uncertain_words": ["flat"],
+     "words": [
+       {"index": 0, "word": "a", "alternatives": [], "agreement": 1.0},
+       {"index": 1, "word": "flat", "alternatives": ["black"], "agreement": 0.8}
+     ],
      "needs_confirmation": false
    }
 ```
@@ -93,9 +97,10 @@ Body: `multipart/form-data`, field `audio` — the audio held between their two 
 |---|---|
 | `relay_id` | Pass to `/confirm`. Single use. |
 | `best` | Best recovery. Empty string means the model declined to guess — show the type-it fallback, do not show an empty card. |
-| `confidence` | 0–1. Fuses inter-sample agreement (weighted 0.65) with the model's self-report (0.35). |
+| `confidence` | 0–1. Inter-sample agreement only. The model's self-report is deliberately weighted 0.0. |
 | `alternates` | 0–3 genuinely different readings, drawn from disagreeing samples. |
 | `uncertain_words` | Words within `best` to highlight. Subset of `best`'s words. |
+| `words` | Per-word readings from the sample vote, including real alternatives and agreement. |
 | `needs_confirmation` | `true` → show the alternates. `false` → show `best` alone. Advisory only. |
 
 **`needs_confirmation` is a presentation hint, not permission to auto-speak.** Confirm

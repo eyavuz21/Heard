@@ -40,8 +40,8 @@ export default function MyWordsPage() {
           </span>
         </p>
         <p className="mt-1 text-[13px] font-medium leading-relaxed text-ink-soft">
-          Heard is getting better at understanding you — not the other way
-          around.
+          Illustrative demo stat. Heard is getting better at understanding you — not the
+          other way around.
         </p>
       </section>
 

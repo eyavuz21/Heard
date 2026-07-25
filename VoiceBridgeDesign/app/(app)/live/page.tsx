@@ -1,15 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import {
-  ConfirmView,
-  WordFixView,
-  alternativesFor,
-} from "@/components/TranscriptConfirm";
+import { useEffect, useState } from "react";
+import { ConfirmView, WordFixView } from "@/components/TranscriptConfirm";
 import { SpeakBlob } from "@/components/ui/SpeakBlob";
 import {
-  partnerTranscriptLines,
-  userTranscriptDraft,
+  ApiError,
+  confirmRelay,
+  createSession,
+  deleteSession,
+  getUserId,
+  postAmbient,
+  postRelay,
+  type ConfirmSource,
+  type RelayResult,
+  type WordOption,
+} from "@/lib/api";
+import { useRecorder } from "@/lib/use-recorder";
+import {
   wordsFromTranscript,
 } from "@/lib/mock-data";
 
@@ -19,95 +26,228 @@ type LiveState =
   | "recording"
   | "processing"
   | "confirm"
-  | "wordFix";
+  | "wordFix"
+  | "speaking";
 
 export default function LivePage() {
   const [state, setState] = useState<LiveState>("idle");
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [partnerText, setPartnerText] = useState("");
-  const [lineIndex, setLineIndex] = useState(0);
+  const [partnerTarget, setPartnerTarget] = useState("");
   const [charIndex, setCharIndex] = useState(0);
-  const [words, setWords] = useState(
-    wordsFromTranscript(userTranscriptDraft),
-  );
+  const [relayResult, setRelayResult] = useState<RelayResult | null>(null);
+  const [words, setWords] = useState<WordOption[]>([]);
+  const [source, setSource] = useState<ConfirmSource>("best");
+  const [hasEdited, setHasEdited] = useState(false);
   const [showWrongActions, setShowWrongActions] = useState(false);
   const [selectedWordIndex, setSelectedWordIndex] = useState<number | null>(
     null,
   );
   const [confirmedMessages, setConfirmedMessages] = useState<string[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const recorder = useRecorder();
 
   const selectedWord =
     selectedWordIndex !== null ? words[selectedWordIndex] : null;
 
-  const alternatives = useMemo(
-    () => (selectedWord ? alternativesFor(selectedWord) : []),
-    [selectedWord],
-  );
-
   useEffect(() => {
-    if (state !== "listening") return;
-
-    const currentLine = partnerTranscriptLines[lineIndex] ?? "";
-    if (charIndex < currentLine.length) {
-      const t = setTimeout(() => {
-        setPartnerText(currentLine.slice(0, charIndex + 1));
-        setCharIndex((c) => c + 1);
-      }, 38);
-      return () => clearTimeout(t);
-    }
-
-    if (lineIndex < partnerTranscriptLines.length - 1) {
-      const t = setTimeout(() => {
-        setLineIndex((i) => i + 1);
-        setCharIndex(0);
-        setPartnerText("");
-      }, 1400);
-      return () => clearTimeout(t);
-    }
-  }, [state, lineIndex, charIndex]);
-
-  useEffect(() => {
-    if (state !== "processing") return;
+    if (charIndex >= partnerTarget.length) return;
     const t = setTimeout(() => {
-      setWords(wordsFromTranscript(userTranscriptDraft));
+      setPartnerText(partnerTarget.slice(0, charIndex + 1));
+      setCharIndex((c) => c + 1);
+    }, 38);
+    return () => clearTimeout(t);
+  }, [partnerTarget, charIndex]);
+
+  useEffect(() => {
+    if (state !== "listening" || !sessionId) return;
+
+    const activeSessionId = sessionId;
+    let stream: MediaStream | null = null;
+    let recorder: MediaRecorder | null = null;
+    let cancelled = false;
+
+    // One complete recording per cycle, NOT recorder.start(timeslice).
+    //
+    // In timeslice mode only the first chunk carries the container header: Safari emits
+    // fragmented MP4 where chunk 1 is ftyp+moov and the rest are bare moof+mdat, and
+    // Chrome's webm behaves the same way. Posting those later fragments individually
+    // sends the backend headerless bytes that ffmpeg cannot decode ("no tfhd was found",
+    // "error reading header"), so every chunk after the first fails.
+    //
+    // Stopping and restarting produces a self-contained file each time. The cost is a
+    // few tens of milliseconds of silence between windows, which does not matter for
+    // ambient context -- it is a prior for the recogniser, not the utterance itself.
+    const WINDOW_MS = 5000;
+
+    async function recordWindow(activeStream: MediaStream): Promise<Blob> {
+      return new Promise((resolve) => {
+        const chunks: Blob[] = [];
+        const windowRecorder = new MediaRecorder(activeStream);
+        recorder = windowRecorder;
+
+        windowRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) chunks.push(event.data);
+        };
+        windowRecorder.onstop = () => {
+          resolve(new Blob(chunks, { type: windowRecorder.mimeType || "audio/webm" }));
+        };
+
+        windowRecorder.start();
+        setTimeout(() => {
+          if (windowRecorder.state === "recording") windowRecorder.stop();
+        }, WINDOW_MS);
+      });
+    }
+
+    async function startAmbient() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch {
+        setPartnerTarget("");
+        return;
+      }
+
+      while (!cancelled && stream) {
+        const clip = await recordWindow(stream);
+        if (cancelled || clip.size === 0) continue;
+
+        try {
+          const result = await postAmbient(activeSessionId, clip);
+          if (cancelled || !result.appended || !result.text.trim()) continue;
+          setPartnerTarget(result.text);
+          setPartnerText("");
+          setCharIndex(0);
+        } catch (err) {
+          if (err instanceof ApiError && err.kind === "not_found") {
+            setErrorMessage("Session expired — restart the conversation.");
+            setState("idle");
+            return;
+          }
+          // Any other ambient failure is non-fatal: context is a nice-to-have, and the
+          // user can still tap and speak. Keep listening rather than killing the loop.
+        }
+      }
+    }
+
+    void startAmbient();
+
+    return () => {
+      cancelled = true;
+      if (recorder?.state === "recording") recorder.stop();
+      stream?.getTracks().forEach((track) => track.stop());
+    };
+  }, [sessionId, state]);
+
+  async function startConversation() {
+    setErrorMessage(null);
+    setConfirmedMessages([]);
+    setPartnerText("");
+    setPartnerTarget("");
+    setCharIndex(0);
+    try {
+      const session = await createSession(getUserId());
+      setSessionId(session.session_id);
+      setState("listening");
+    } catch {
+      setErrorMessage("Something's wrong on our end — try again in a moment.");
+    }
+  }
+
+  async function endConversation() {
+    const id = sessionId;
+    setSessionId(null);
+    if (id) await deleteSession(id).catch(() => undefined);
+    recorder.cancel();
+    setState("idle");
+    setPartnerText("");
+    setPartnerTarget("");
+    setCharIndex(0);
+    setShowWrongActions(false);
+    setSelectedWordIndex(null);
+  }
+
+  async function startUserRecording() {
+    setErrorMessage(null);
+    setShowWrongActions(false);
+    setSelectedWordIndex(null);
+    setState("recording");
+    try {
+      await recorder.start();
+    } catch {
+      setErrorMessage("Recording is not available in this browser.");
+      setState("listening");
+    }
+  }
+
+  async function stopUserRecording() {
+    if (!sessionId) {
+      setErrorMessage("Session expired — restart the conversation.");
+      setState("idle");
+      return;
+    }
+
+    setState("processing");
+    try {
+      const audio = await recorder.stop();
+      const result = await postRelay(sessionId, audio);
+      setRelayResult(result);
+      setWords(result.words.length ? result.words : toWordOptions(result.best));
+      setSource("best");
+      setHasEdited(false);
       setShowWrongActions(false);
       setSelectedWordIndex(null);
       setState("confirm");
-    }, 1400);
-    return () => clearTimeout(t);
-  }, [state]);
-
-  function startConversation() {
-    setConfirmedMessages([]);
-    setPartnerText("");
-    setLineIndex(0);
-    setCharIndex(0);
-    setState("listening");
+    } catch (err) {
+      setErrorMessage(messageForError(err));
+      setState(err instanceof ApiError && err.kind === "not_found" ? "idle" : "listening");
+    }
   }
 
-  function endConversation() {
-    setState("idle");
-    setPartnerText("");
-    setLineIndex(0);
-    setCharIndex(0);
-    setShowWrongActions(false);
-    setSelectedWordIndex(null);
+  async function confirmCorrect() {
+    if (!relayResult) return;
+    const text = hasEdited ? words.map((word) => word.word).join(" ") : relayResult.best;
+    if (!text.trim()) return;
+
+    setState("speaking");
+    setErrorMessage(null);
+    try {
+      const audio = await confirmRelay(relayResult.relay_id, text, source);
+      await playAudio(audio);
+      setConfirmedMessages((prev) => [...prev, text]);
+      setRelayResult(null);
+      setWords([]);
+      setShowWrongActions(false);
+      setSelectedWordIndex(null);
+      setPartnerText("");
+      setPartnerTarget("");
+      setCharIndex(0);
+      setState("listening");
+    } catch (err) {
+      setErrorMessage(messageForError(err));
+      setState("confirm");
+    }
   }
 
-  function confirmCorrect() {
-    setConfirmedMessages((prev) => [...prev, words.join(" ")]);
+  function pickSentence(sentence: string) {
+    setWords(toWordOptions(sentence));
+    setSource("alternate");
+    setHasEdited(true);
     setShowWrongActions(false);
     setSelectedWordIndex(null);
-    setPartnerText("");
-    setLineIndex(0);
-    setCharIndex(0);
-    setState("listening");
   }
 
   function applyAlternative(alt: string) {
     if (selectedWordIndex === null) return;
     setWords((prev) =>
-      prev.map((w, i) => (i === selectedWordIndex ? alt : w)),
+      prev.map((option, i) =>
+        i === selectedWordIndex
+          ? { ...option, word: alt, alternatives: [], agreement: 1 }
+          : option,
+      ),
     );
+    setSource("alternate");
+    setHasEdited(true);
     setState("confirm");
     setShowWrongActions(true);
     setSelectedWordIndex(null);
@@ -116,35 +256,42 @@ export default function LivePage() {
   return (
     <div className="flex h-full min-h-full flex-col px-5 pb-4 pt-6">
       {state === "idle" && (
-        <IdleView onStart={startConversation} />
+        <IdleView onStart={() => void startConversation()} errorMessage={errorMessage} />
       )}
 
       {state === "listening" && (
         <ListeningView
           partnerText={partnerText}
           confirmedMessages={confirmedMessages}
-          onRecord={() => setState("recording")}
-          onEnd={endConversation}
+          onRecord={() => void startUserRecording()}
+          onEnd={() => void endConversation()}
         />
       )}
 
       {state === "recording" && (
-        <RecordingView onStop={() => setState("processing")} />
+        <RecordingView onStop={() => void stopUserRecording()} />
       )}
 
       {state === "processing" && <ProcessingView />}
+      {state === "speaking" && <SpeakingView />}
 
-      {state === "confirm" && (
+      {state === "confirm" && relayResult && (
         <ConfirmView
+          best={relayResult.best}
           words={words}
+          confidence={relayResult.confidence}
+          needsConfirmation={relayResult.needs_confirmation}
+          alternates={relayResult.alternates}
           showWrongActions={showWrongActions}
           selectedWordIndex={selectedWordIndex}
-          onCorrect={confirmCorrect}
+          errorMessage={errorMessage}
+          onCorrect={() => void confirmCorrect()}
           onWrong={() => setShowWrongActions(true)}
           onRerecord={() => {
             setShowWrongActions(false);
-            setState("recording");
+            void startUserRecording();
           }}
+          onPickSentence={pickSentence}
           onSelectWord={(i) => {
             setSelectedWordIndex(i);
             setState("wordFix");
@@ -154,8 +301,8 @@ export default function LivePage() {
 
       {state === "wordFix" && selectedWord && (
         <WordFixView
-          word={selectedWord}
-          alternatives={alternatives}
+          option={selectedWord}
+          alternatives={selectedWord.alternatives}
           onPick={applyAlternative}
           onBack={() => {
             setState("confirm");
@@ -167,7 +314,13 @@ export default function LivePage() {
   );
 }
 
-function IdleView({ onStart }: { onStart: () => void }) {
+function IdleView({
+  onStart,
+  errorMessage,
+}: {
+  onStart: () => void;
+  errorMessage: string | null;
+}) {
   return (
     <div className="relative flex flex-1 flex-col font-body">
       <div className="flex items-start justify-between px-1 pt-1">
@@ -188,6 +341,11 @@ function IdleView({ onStart }: { onStart: () => void }) {
             aria-label="Start conversation"
             caption="Start conversation"
           />
+          {errorMessage && (
+            <p className="mt-6 max-w-[16rem] text-center text-sm font-semibold text-[#6b1530]">
+              {errorMessage}
+            </p>
+          )}
         </div>
       </div>
     </div>
@@ -286,8 +444,58 @@ function ProcessingView() {
       <p className="text-[24px] font-semibold tracking-tight text-ink">
         Clarifying your words…
       </p>
-      <p className="mt-3 text-sm text-ink-mute">Taking a careful listen</p>
+      <p className="mt-3 max-w-[15rem] text-center text-sm text-ink-mute">
+        Taking a careful listen. This can take around twenty seconds.
+      </p>
     </div>
   );
 }
 
+function SpeakingView() {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center animate-fade-up">
+      <div className="mb-6">
+        <SpeakBlob aria-label="Speaking now" label="▶" />
+      </div>
+      <p className="text-[24px] font-semibold tracking-tight text-ink">
+        Speaking now
+      </p>
+      <p className="mt-3 text-sm text-ink-mute">Playing your confirmed words</p>
+    </div>
+  );
+}
+
+function toWordOptions(text: string): WordOption[] {
+  return wordsFromTranscript(text).map((word, index) => ({
+    index,
+    word,
+    alternatives: [],
+    agreement: 1,
+  }));
+}
+
+async function playAudio(blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  try {
+    const audio = new Audio(url);
+    await audio.play();
+    await new Promise<void>((resolve) => {
+      audio.onended = () => resolve();
+      audio.onerror = () => resolve();
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function messageForError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.kind === "unavailable") {
+      return "Something's wrong on our end — try again in a moment.";
+    }
+    if (err.kind === "not_found") {
+      return "Session expired — restart the conversation.";
+    }
+  }
+  return "Something went wrong — try again.";
+}

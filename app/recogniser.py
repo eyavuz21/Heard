@@ -9,11 +9,13 @@ building an ASR model, we are asking an audio-native LLM a well-framed question.
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 
 from google import genai
 from google.genai import types
+from pydub import AudioSegment
 
 from app.config import settings
 from app.models import RecognitionSample
@@ -29,6 +31,20 @@ log = logging.getLogger(__name__)
 # to disk, which is exactly what we promised not to do. Console only unless you have
 # deliberately decided otherwise for a debugging session.
 call_log = logging.getLogger("relay.calls")
+
+
+class UnusableAudio(ValueError):
+    """The bytes we were given are not decodable audio.
+
+    Raised rather than forwarded. ffmpeg decodes essentially everything, so if it cannot
+    read these bytes then Gemini will not either -- passing them on only converts a clear
+    local failure into an opaque 400 from Google, and on the relay path spends five paid
+    calls doing it.
+
+    The usual cause is a caller posting a MediaRecorder *fragment* instead of a complete
+    recording. In timeslice mode only the first chunk carries the container header; the
+    rest are headerless and not independently decodable.
+    """
 
 
 class RecognitionUnavailable(RuntimeError):
@@ -51,6 +67,52 @@ RESPONSE_SCHEMA = {
     },
     "required": ["best", "confidence", "alternates", "uncertain_words"],
 }
+
+# What we hand Gemini, regardless of what the browser handed us. Every eval and tuning run
+# was measured on mp3, so normalising here means the model sees in production exactly the
+# format it was tuned against.
+CANONICAL_MIME = "audio/mpeg"
+
+# Formats we pass through untouched rather than re-encoding. mp3 is the canonical form;
+# wav is lossless so a transcode would only cost latency.
+PASSTHROUGH_MIMES = frozenset({"audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav"})
+
+
+def normalise(audio: bytes, mime_type: str) -> tuple[bytes, str]:
+    """Decode whatever the browser produced and re-encode it to mp3.
+
+    Browsers do not agree on recording format: Chrome's MediaRecorder emits
+    `audio/webm;codecs=opus`, Safari emits `audio/mp4`. Gemini's documented audio formats
+    do not obviously include either container, and trusting a client-supplied
+    `content_type` means the demo's success depends on which browser is open. ffmpeg
+    decodes all of them, so we stop guessing and normalise.
+
+    Costs roughly 200ms on a few seconds of audio, against a relay that already takes 10s
+    or more.
+
+    Raises UnusableAudio if the bytes cannot be decoded. Forwarding them instead would
+    trade a precise local error for a generic 400 from Gemini -- see UnusableAudio.
+    """
+    if not audio:
+        raise UnusableAudio("empty audio payload")
+
+    base = mime_type.split(";")[0].strip().casefold()
+    if base in PASSTHROUGH_MIMES:
+        return audio, CANONICAL_MIME if base == "audio/mp3" else base
+
+    try:
+        segment = AudioSegment.from_file(io.BytesIO(audio))
+        buffer = io.BytesIO()
+        segment.export(buffer, format="mp3")
+    except Exception as exc:  # noqa: BLE001 -- pydub raises bare Exception on ffmpeg failure
+        raise UnusableAudio(
+            f"could not decode {len(audio)} bytes of {mime_type}. If this came from "
+            "MediaRecorder, check it is a complete recording rather than a timeslice "
+            f"fragment: {exc}"
+        ) from exc
+
+    return buffer.getvalue(), CANONICAL_MIME
+
 
 _client: genai.Client | None = None
 
@@ -131,6 +193,7 @@ async def recognise_samples(
     """
     n = n or settings.gate_samples
     temperature = settings.gate_temperature if temperature is None else temperature
+    audio, mime_type = normalise(audio, mime_type)
 
     async def bounded() -> RecognitionSample:
         return await asyncio.wait_for(
@@ -169,6 +232,8 @@ async def recognise_with_control(
     context. See gate.context_grounding.
     """
     n = max(1, settings.gate_samples - 1)
+    # Once here, not once per sample: the contextual fan-out sees mp3 already and skips it.
+    audio, mime_type = normalise(audio, mime_type)
 
     contextual, control = await asyncio.gather(
         recognise_samples(audio, mime_type, prompt, n=n),
@@ -198,6 +263,7 @@ async def transcribe_ambient(audio: bytes, mime_type: str) -> str:
     The caller must discard `audio` immediately after this returns. We never write it
     anywhere, and nothing derived from it is allowed into the user's profile.
     """
+    audio, mime_type = normalise(audio, mime_type)
     response = await client().aio.models.generate_content(
         model=settings.gemini_model,
         contents=[

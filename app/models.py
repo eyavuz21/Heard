@@ -55,6 +55,19 @@ class AmbientResponse(BaseModel):
     appended: bool
 
 
+class WordOption(BaseModel):
+    """One word position in `best`, with the other readings the samples produced.
+
+    These are real competing readings of this person's actual audio, not generic
+    synonyms -- which is what makes the correction UI worth tapping.
+    """
+
+    index: int
+    word: str
+    alternatives: list[str]
+    agreement: float = Field(ge=0.0, le=1.0)
+
+
 class RelayResult(BaseModel):
     """What the user's held audio was recovered as.
 
@@ -67,6 +80,7 @@ class RelayResult(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     alternates: list[str] = Field(default_factory=list, max_length=3)
     uncertain_words: list[str] = Field(default_factory=list)
+    words: list[WordOption] = Field(default_factory=list)
     needs_confirmation: bool
 
 
