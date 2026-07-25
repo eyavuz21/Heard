@@ -116,7 +116,7 @@ Keys are server-side only; ASR/LLM keys are never exposed to the browser.
 
 ## Status
 
-Greenfield hackathon build. Core loop first: **listen → Speak → recover → confirm → speak aloud**, with the learning loop wired live. Sharing (voice / text / avatar / video) and NHS-App auto-fill of the pending appointment are on the roadmap.
+Greenfield hackathon build. Core loop first: **listen → Speak → recover → confirm → speak aloud**, with the learning loop wired live. Sharing (voice / text / avatar / video) is on the roadmap.
 
 ## Safety
 
