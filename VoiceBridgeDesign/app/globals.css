@@ -1,0 +1,786 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f2f2f2;
+  --bg-elevated: #ffffff;
+  --line: #e6e6e6;
+  --ink: #111111;
+  --ink-soft: #4a4a4a;
+  --ink-mute: #8a8a8a;
+  --cyan: #3ecfff;
+  --violet: #6b4dff;
+  --magenta: #ff4d9a;
+  --coral: #ff6b3d;
+  --lime: #c8f54a;
+  --success: #1f9d6a;
+  --danger: #e23d5c;
+  --surface: #ffffff;
+  --surface-muted: #f7f7f7;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-mute: var(--ink-mute);
+  --color-cyan: var(--cyan);
+  --color-violet: var(--violet);
+  --color-magenta: var(--magenta);
+  --color-coral: var(--coral);
+  --color-lime: var(--lime);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  /* legacy aliases used in a few places */
+  --color-mist-50: #fafafa;
+  --color-mist-100: #f2f2f2;
+  --color-mist-200: #e8e8e8;
+  --color-mist-300: #d9d9d9;
+  --color-lilac: var(--cyan);
+  --color-orchid: var(--violet);
+  --color-blush: #f5f5f5;
+  --color-surface-strong: #ffffff;
+  --font-display: var(--font-nunito), "Segoe UI", sans-serif;
+  --font-body: var(--font-nunito), "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  color: var(--ink);
+  font-family: var(--font-nunito), "Segoe UI", sans-serif;
+  background: #eaeaea;
+  -webkit-font-smoothing: antialiased;
+}
+
+body,
+body * {
+  font-family: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes live-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.85);
+  }
+}
+
+@keyframes typing-caret {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Soft mesh aura glob — matches reference photo */
+@keyframes cloud-drift-a {
+  0%,
+  100% {
+    transform: translate(-12%, -10%) scale(1);
+  }
+  50% {
+    transform: translate(14%, 8%) scale(1.12);
+  }
+}
+
+@keyframes cloud-drift-b {
+  0%,
+  100% {
+    transform: translate(16%, 4%) scale(1.05);
+  }
+  50% {
+    transform: translate(-18%, -12%) scale(1.18);
+  }
+}
+
+@keyframes cloud-drift-c {
+  0%,
+  100% {
+    transform: translate(-6%, 16%) scale(1);
+  }
+  50% {
+    transform: translate(10%, -14%) scale(1.15);
+  }
+}
+
+@keyframes cloud-drift-d {
+  0%,
+  100% {
+    transform: translate(4%, -8%) scale(1.08) rotate(0deg);
+  }
+  50% {
+    transform: translate(-10%, 12%) scale(0.95) rotate(25deg);
+  }
+}
+
+@keyframes cloud-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.95;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+
+@keyframes nav-orb-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.75;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+}
+
+.speak-blob {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 120px;
+  height: 120px;
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  transition: transform 0.25s ease;
+}
+
+.speak-blob:active {
+  transform: scale(0.96);
+}
+
+.speak-blob--lg {
+  width: 160px;
+  height: 160px;
+}
+
+.speak-blob--hero {
+  width: 220px;
+  height: 220px;
+}
+
+.speak-blob--recording .speak-blob-field {
+  animation-duration: 4s;
+}
+
+.speak-blob-field {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  overflow: visible;
+  animation: cloud-breathe 6s ease-in-out infinite;
+  /* Soft circular falloff — no hard edge */
+  -webkit-mask-image: radial-gradient(
+    circle,
+    #000 18%,
+    rgba(0, 0, 0, 0.85) 42%,
+    transparent 72%
+  );
+  mask-image: radial-gradient(
+    circle,
+    #000 18%,
+    rgba(0, 0, 0, 0.85) 42%,
+    transparent 72%
+  );
+  filter: blur(1px);
+}
+
+.speak-blob-cloud {
+  position: absolute;
+  inset: -20%;
+  border-radius: 50%;
+  filter: blur(28px);
+  will-change: transform;
+}
+
+.speak-blob-cloud-a {
+  background: radial-gradient(
+    circle at 40% 35%,
+    #7ec8ff 0%,
+    #5a6bff 45%,
+    transparent 70%
+  );
+  animation: cloud-drift-a 9s ease-in-out infinite;
+}
+
+.speak-blob-cloud-b {
+  background: radial-gradient(
+    circle at 65% 55%,
+    #ff6b9d 0%,
+    #8b5cff 40%,
+    transparent 68%
+  );
+  animation: cloud-drift-b 11s ease-in-out infinite;
+}
+
+.speak-blob-cloud-c {
+  background: radial-gradient(
+    circle at 45% 70%,
+    #ff9a4a 0%,
+    #ff5c7a 38%,
+    transparent 66%
+  );
+  opacity: 0.9;
+  animation: cloud-drift-c 10s ease-in-out infinite;
+}
+
+.speak-blob-cloud-d {
+  background: radial-gradient(
+    circle at 50% 45%,
+    rgba(255, 255, 255, 0.75) 0%,
+    rgba(180, 220, 255, 0.35) 35%,
+    transparent 60%
+  );
+  filter: blur(22px);
+  animation: cloud-drift-d 8s ease-in-out infinite;
+}
+
+.speak-blob--hero .speak-blob-cloud {
+  filter: blur(36px);
+}
+
+.speak-blob--hero .speak-blob-cloud-d {
+  filter: blur(28px);
+}
+
+.speak-blob-label {
+  position: relative;
+  z-index: 2;
+  max-width: 70%;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  line-height: 1.25;
+  text-align: center;
+  text-transform: uppercase;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+
+.speak-blob--hero .speak-blob-label {
+  font-size: 12px;
+  letter-spacing: 0.18em;
+}
+
+.speak-blob-stop {
+  position: relative;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+
+.nav-dock {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(228, 228, 228, 0.9);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.04);
+}
+
+/* Soft color globs under nav labels — tones from reference */
+.nav-glob {
+  display: block;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  transition:
+    transform 0.3s ease,
+    opacity 0.3s ease,
+    filter 0.3s ease;
+  opacity: 0.72;
+  filter: blur(0.3px);
+  -webkit-mask-image: radial-gradient(
+    circle,
+    #000 28%,
+    rgba(0, 0, 0, 0.75) 52%,
+    transparent 74%
+  );
+  mask-image: radial-gradient(
+    circle,
+    #000 28%,
+    rgba(0, 0, 0, 0.75) 52%,
+    transparent 74%
+  );
+}
+
+.nav-glob--active {
+  opacity: 1;
+  transform: scale(1.18);
+  filter: blur(0);
+}
+
+/* Correct / Wrong — thinner outline with soft glob inside */
+.action-outline {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  border: 0.5px solid #b0b0b0;
+  background: transparent;
+  padding: 0.75rem;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.action-outline-glob {
+  position: absolute;
+  inset: 4%;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(1px);
+  -webkit-mask-image: radial-gradient(
+    circle,
+    #000 32%,
+    rgba(0, 0, 0, 0.7) 58%,
+    transparent 80%
+  );
+  mask-image: radial-gradient(
+    circle,
+    #000 32%,
+    rgba(0, 0, 0, 0.7) 58%,
+    transparent 80%
+  );
+  animation: nav-orb-breathe 3.6s ease-in-out infinite;
+}
+
+.action-outline--correct .action-outline-glob {
+  opacity: 0.22;
+  background:
+    radial-gradient(circle at 40% 35%, #d8efc8 0%, transparent 55%),
+    radial-gradient(circle at 58% 58%, #c5e6b4 0%, #b4dca6 55%, transparent 75%),
+    radial-gradient(circle at 48% 50%, #cce8bc 0%, transparent 68%);
+}
+
+.action-outline--wrong .action-outline-glob {
+  opacity: 0.22;
+  background:
+    radial-gradient(circle at 40% 35%, #f0d0cc 0%, transparent 55%),
+    radial-gradient(circle at 58% 58%, #e8c0bc 0%, #e0b0aa 55%, transparent 75%),
+    radial-gradient(circle at 48% 50%, #ecc8c4 0%, transparent 68%);
+  animation-delay: 0.2s;
+}
+
+.action-outline-label {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  color: #111111;
+}
+
+/* Live — cool periwinkle / lavender blue */
+.nav-glob--live {
+  background:
+    radial-gradient(circle at 35% 35%, #c9d8ff 0%, transparent 55%),
+    radial-gradient(circle at 65% 60%, #7b8cff 0%, #5a6bff 40%, transparent 70%),
+    radial-gradient(circle at 50% 50%, #a8b8ff 0%, transparent 65%);
+  box-shadow: 0 6px 18px rgba(90, 107, 255, 0.28);
+  animation: nav-orb-breathe 3.4s ease-in-out infinite;
+}
+
+/* Share — warm orange / magenta */
+.nav-glob--share {
+  background:
+    radial-gradient(circle at 40% 30%, #ffb07a 0%, transparent 50%),
+    radial-gradient(circle at 60% 65%, #ff4d7a 0%, #ff6b3d 42%, transparent 70%),
+    radial-gradient(circle at 45% 55%, #c44dff 0%, transparent 60%);
+  box-shadow: 0 6px 18px rgba(255, 77, 122, 0.28);
+  animation: nav-orb-breathe 3.8s ease-in-out infinite 0.2s;
+}
+
+/* My Words — soft lime / peach spring */
+.nav-glob--data {
+  background:
+    radial-gradient(circle at 40% 35%, #f6ffb0 0%, transparent 50%),
+    radial-gradient(circle at 60% 60%, #b8f06a 0%, #8fd94a 40%, transparent 70%),
+    radial-gradient(circle at 50% 50%, #ffc48a 0%, transparent 62%);
+  box-shadow: 0 6px 18px rgba(143, 217, 74, 0.28);
+  animation: nav-orb-breathe 3.6s ease-in-out infinite 0.4s;
+}
+
+.accent-gradient {
+  background: linear-gradient(135deg, #3ecfff 0%, #6b4dff 48%, #ff4d9a 100%);
+}
+
+/* Soft aura behind share pie — matches dreamy glob aesthetic */
+.progress-banner {
+  background:
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.95) 0%,
+      rgba(232, 238, 255, 0.9) 55%,
+      rgba(232, 248, 240, 0.88) 100%
+    );
+  border: 1px solid rgba(220, 220, 220, 0.9);
+}
+
+.word-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.5rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #e6e6e6;
+  font-size: 14px;
+  font-weight: 600;
+  color: #111111;
+}
+
+.word-chip--add {
+  border-style: dashed;
+  border-color: #c8c8c8;
+  color: #4a4a4a;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.learning-card {
+  border-radius: 1.25rem;
+  padding: 0.9rem 1rem;
+  background: rgba(236, 240, 255, 0.92);
+  border: 1px solid rgba(190, 200, 235, 0.65);
+}
+
+/* Share options — soft aura orbs, no hard cards */
+.share-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.share-choice {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  min-height: 5.25rem;
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  border: none;
+  background: rgba(255, 255, 255, 0.72);
+  text-align: left;
+  cursor: pointer;
+  border-radius: 1.25rem;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.share-choice:hover {
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.share-choice:active {
+  transform: scale(0.99);
+}
+
+.share-choice-glob {
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  filter: blur(0.4px);
+  -webkit-mask-image: radial-gradient(
+    circle,
+    #000 22%,
+    rgba(0, 0, 0, 0.8) 50%,
+    transparent 74%
+  );
+  mask-image: radial-gradient(
+    circle,
+    #000 22%,
+    rgba(0, 0, 0, 0.8) 50%,
+    transparent 74%
+  );
+  animation: nav-orb-breathe 4s ease-in-out infinite;
+  transition: transform 0.25s ease;
+}
+
+.group:hover .share-choice-glob {
+  transform: scale(1.06);
+}
+
+.share-choice-glob--avatar {
+  background:
+    radial-gradient(circle at 35% 30%, #c9d8ff 0%, transparent 50%),
+    radial-gradient(circle at 65% 60%, #7b8cff 0%, #5a6bff 42%, transparent 70%);
+  animation-delay: 0s;
+}
+
+.share-choice-glob--voice {
+  background:
+    radial-gradient(circle at 40% 30%, #ffb07a 0%, transparent 48%),
+    radial-gradient(circle at 60% 65%, #ff6b3d 0%, #c44dff 45%, transparent 70%);
+  animation-delay: 0.15s;
+}
+
+.share-choice-glob--text {
+  background:
+    radial-gradient(circle at 38% 32%, #f6ffb0 0%, transparent 48%),
+    radial-gradient(circle at 60% 58%, #b8f06a 0%, #ffc48a 45%, transparent 70%);
+  animation-delay: 0.3s;
+}
+
+.share-choice-glob--whatsapp {
+  background:
+    radial-gradient(circle at 40% 35%, #b8f5c8 0%, transparent 50%),
+    radial-gradient(circle at 58% 60%, #5fd98a 0%, #3ecfff 48%, transparent 72%);
+  animation-delay: 0s;
+}
+
+.share-choice-glob--messages {
+  background:
+    radial-gradient(circle at 35% 30%, #ffd0e0 0%, transparent 48%),
+    radial-gradient(circle at 62% 58%, #7b8cff 0%, #ff6b9d 45%, transparent 70%);
+  animation-delay: 0.15s;
+}
+
+.share-choice-glob--copy {
+  background:
+    radial-gradient(circle at 42% 38%, #e8e8e8 0%, transparent 50%),
+    radial-gradient(circle at 55% 55%, #b8c0d0 0%, #8a9bb0 50%, transparent 72%);
+  animation-delay: 0.3s;
+}
+
+.share-choice-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.share-choice-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #111111;
+}
+
+.share-choice-sub {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: #8a8a8a;
+}
+
+/* Landing — soft album-cover aura field */
+.landing-page {
+  background: #f2f2f2;
+}
+
+.landing-globs {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.landing-glob {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(48px);
+  opacity: 0.72;
+  will-change: transform;
+}
+
+.landing-glob-a {
+  width: 340px;
+  height: 340px;
+  top: 6%;
+  left: 50%;
+  translate: -50% 0;
+  background: radial-gradient(
+    circle at 40% 40%,
+    #9ec8ff 0%,
+    #7b8cff 38%,
+    transparent 68%
+  );
+  animation: cloud-drift-a 16s ease-in-out infinite;
+}
+
+.landing-glob-b {
+  width: 280px;
+  height: 280px;
+  top: 42%;
+  left: -20%;
+  background: radial-gradient(
+    circle at 55% 45%,
+    #c9b8ff 0%,
+    #8a6bff 42%,
+    transparent 70%
+  );
+  animation: cloud-drift-b 19s ease-in-out infinite;
+}
+
+.landing-glob-c {
+  width: 300px;
+  height: 300px;
+  bottom: 10%;
+  right: -18%;
+  background: radial-gradient(
+    circle at 50% 50%,
+    #ff9ec8 0%,
+    #7b8cff 48%,
+    transparent 70%
+  );
+  opacity: 0.5;
+  animation: cloud-drift-c 17s ease-in-out infinite;
+}
+
+.landing-glob-d {
+  width: 220px;
+  height: 220px;
+  top: 58%;
+  left: 35%;
+  background: radial-gradient(
+    circle at 45% 50%,
+    #b8e8ff 0%,
+    #a890ff 45%,
+    transparent 70%
+  );
+  opacity: 0.4;
+  animation: cloud-drift-a 21s ease-in-out infinite reverse;
+}
+
+.launch-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 3.5rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 10px 30px rgba(107, 77, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: #111111;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition:
+    transform 0.25s ease,
+    background 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+.launch-btn:hover {
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 14px 34px rgba(107, 77, 255, 0.16);
+}
+
+.launch-btn:active {
+  transform: scale(0.98);
+}
+
+.story-scroll {
+  /* Tall scroll runway so sticky copy can cycle through beats */
+}
+
+.story-fade {
+  animation: story-fade-in 0.55s ease both;
+}
+
+@keyframes story-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.accent-bar {
+  background: linear-gradient(90deg, #3ecfff, #6b4dff, #ff4d9a, #ff6b3d);
+}
+
+.animate-fade-up {
+  animation: fade-up 0.45s ease-out both;
+}
+
+.animate-live-dot {
+  animation: live-dot 1.2s ease-in-out infinite;
+}
+
+.animate-caret {
+  animation: typing-caret 1s step-end infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .speak-blob-field,
+  .speak-blob-cloud-a,
+  .speak-blob-cloud-b,
+  .speak-blob-cloud-c,
+  .speak-blob-cloud-d,
+  .landing-glob-a,
+  .landing-glob-b,
+  .landing-glob-c,
+  .landing-glob-d,
+  .story-fade,
+  .nav-glob--live,
+  .nav-glob--share,
+  .nav-glob--data,
+  .action-outline-glob,
+  .share-choice-glob,
+  .animate-fade-up,
+  .animate-live-dot,
+  .animate-caret {
+    animation: none !important;
+  }
+}
