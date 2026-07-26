@@ -7,7 +7,7 @@
 > They make you train a model, or hand you a new voice.
 > Heard lets you speak *now* and be understood — one tap at a time.
 
-Built for the Juno × Anthropic consumer-health hackathon.
+🥈 **2nd place winner** at the [Consumer Health Hackathon](https://luma.com/londonai-m2w1) — London AI × Encode Club, backed by Juno (YC) & Anthropic. Encode Hub, London, July 2026.
 
 **🚀 Try it live:** [heard-iota.vercel.app/live](https://heard-iota.vercel.app/live)
 
