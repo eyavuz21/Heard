@@ -28,6 +28,8 @@ export function SpeakBlob({
     mode === "recording" ? "speak-blob--recording" : ""
   }`;
 
+  const isLoadingDots = label === "…" || label === "...";
+
   const inner = (
     <>
       <span className="speak-blob-field" aria-hidden>
@@ -38,6 +40,12 @@ export function SpeakBlob({
       </span>
       {mode === "recording" ? (
         <span className="speak-blob-stop" />
+      ) : isLoadingDots ? (
+        <span className="speak-blob-dots" aria-hidden>
+          <span className="speak-blob-dot" />
+          <span className="speak-blob-dot" />
+          <span className="speak-blob-dot" />
+        </span>
       ) : label ? (
         <span className="speak-blob-label">{label}</span>
       ) : null}

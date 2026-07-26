@@ -354,7 +354,7 @@ export default function SharePage() {
             Share a message
           </p>
           <p className="mt-2 text-base leading-relaxed text-ink-soft">
-            Not a live conversation — record once, then send.
+            Record a short message, then share it your way.
           </p>
 
           {errorMessage && (
