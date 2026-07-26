@@ -127,7 +127,7 @@ Heard is an **assistive communication aid, not a medical device** — no diagnos
 
 ## Team
 
-- **Emre Yavuz**
+- **Emre Yavuz** — [LinkedIn](https://www.linkedin.com/in/dr-emre-yavuz-449216187/)
 - **Sevara Bakhodirova** — [LinkedIn](https://www.linkedin.com/in/sevara-bakhodirova-485102205/)
 - **Rashad Hosseini** — [LinkedIn](https://www.linkedin.com/in/rashad-hosseini/)
 - **Maria** — [LinkedIn](https://www.linkedin.com/in/mariapapz)
