@@ -10,7 +10,6 @@
 Built for the Juno × Anthropic consumer-health hackathon.
 
 **🚀 Try it live:** [heard-iota.vercel.app/live](https://heard-iota.vercel.app/live)
-**🎬 Demo video:** [watch here](https://docs.google.com/videos/d/1071aXKySeums10puedwNaPpqlU0AEusHCbOFS_RzK-0/play?usp=sharing)
 
 ---
 
@@ -132,8 +131,3 @@ Heard is an **assistive communication aid, not a medical device** — no diagnos
 - **Rashad Hosseini** — [LinkedIn](https://www.linkedin.com/in/rashad-hosseini/)
 - **Maria Papageorgiou** — [LinkedIn](https://www.linkedin.com/in/mariapapz)
 
-## Links
-
-- **Live app:** https://heard-iota.vercel.app/live
-- **Demo video:** [Google Vids](https://docs.google.com/videos/d/1071aXKySeums10puedwNaPpqlU0AEusHCbOFS_RzK-0/play?usp=sharing)
-- **Design doc** (problem, positioning, protocol, build plan): [design document](https://docs.google.com/document/d/1ki5x6JzXBjzY2-Uuixlsu-S8s1YPa8Isy2QDdHx36Ao/edit)
