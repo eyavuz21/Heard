@@ -28,7 +28,7 @@ The problem isn't communication in general. **It's being understood by a strange
 
 ## What it does
 
-Heard **listens to the conversation in the background**. When the user takes their turn, one big **Speak** button isolates their speech. Heard recovers what they meant, shows its best guess, and — on a single confirm — **speaks it aloud in a clean voice** (optionally the user's own cloned voice).
+Heard **listens to the conversation in the background**. When the user takes their turn, one big **Speak** button isolates their speech. Heard recovers what they meant, shows its best guess, and — on a single confirm — **speaks it aloud in a clean voice** — a matched voice by default (age, gender, accent), or the user's own cloned voice where a pre-onset recording exists. (Cloning from dysarthric audio reproduces the slur, so Heard never clones from impaired speech.)
 
 - When it's **confident**, it speaks straight away.
 - When it's **not sure**, it doesn't guess — it offers a couple of tappable options, plus a "type it" fallback.
@@ -46,7 +46,7 @@ The stranger interaction — the shop counter, the GP desk, the taxi, the phone 
 ### 2. Share personalised messages *(async)*
 Once Heard has recovered what you meant, being understood doesn't have to stop at the person in front of you. Send the message however you like:
 
-- 🎙️ **Voice** — your message as a recording in your own (cloned) voice, straight to WhatsApp / Instagram / Messenger
+- 🎙️ **Voice** — your message as a recording in your own (cloned or matched) voice, straight to WhatsApp / Instagram / Messenger
 - 💬 **Text** — as a plain written message
 - 🧑 **Avatar** — a personalised avatar built from your uploaded photos, speaking your message
 - 🎬 **Video** — a generated talking-head clip of you saying it
