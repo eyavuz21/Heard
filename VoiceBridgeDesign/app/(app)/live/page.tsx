@@ -235,6 +235,8 @@ function IdleView({
   onStart: () => void;
   errorMessage: string | null;
 }) {
+  const [step, setStep] = useState<"howto" | "ready">("howto");
+
   return (
     <div className="relative flex flex-1 flex-col font-body">
       <div className="flex items-start justify-between px-1 pt-1">
@@ -246,8 +248,67 @@ function IdleView({
         </p>
       </div>
 
-      <div className="flex flex-1 flex-col items-center justify-center text-center">
-        <div className="animate-fade-up [animation-delay:100ms]">
+      {step === "howto" ? (
+        <div className="flex flex-1 flex-col animate-fade-up px-1 pt-8">
+          <p className="text-[26px] font-semibold leading-tight tracking-tight text-ink">
+            How Live works
+          </p>
+          <p className="mt-2 text-base leading-relaxed text-ink-soft">
+            Follow these steps once the conversation starts.
+          </p>
+
+          <ol className="mt-8 space-y-5 text-left">
+            <li>
+              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-mute">
+                Step 1
+              </p>
+              <p className="mt-1.5 text-[17px] font-semibold leading-snug text-ink">
+                Let the other person speak first
+              </p>
+              <p className="mt-1 text-[15px] leading-relaxed text-ink-soft">
+                Heard listens and shows their words on screen.
+              </p>
+            </li>
+            <li>
+              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-mute">
+                Step 2
+              </p>
+              <p className="mt-1.5 text-[17px] font-semibold leading-snug text-ink">
+                Tap when you want to reply
+              </p>
+              <p className="mt-1 text-[15px] leading-relaxed text-ink-soft">
+                Speak naturally, then check the words Heard heard.
+              </p>
+            </li>
+            <li>
+              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-mute">
+                Step 3
+              </p>
+              <p className="mt-1.5 text-[17px] font-semibold leading-snug text-ink">
+                Confirm, and Heard speaks for you
+              </p>
+              <p className="mt-1 text-[15px] leading-relaxed text-ink-soft">
+                Tap Correct when it looks right. Heard plays your reply aloud.
+              </p>
+            </li>
+          </ol>
+
+          <div className="mt-auto flex justify-center pb-2 pt-10">
+            <button
+              type="button"
+              onClick={() => setStep("ready")}
+              className="aura-continue"
+            >
+              <span className="aura-continue-glow" aria-hidden />
+              <span className="aura-continue-label">Continue</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-1 flex-col items-center justify-center text-center animate-fade-up">
+          <p className="mb-8 max-w-[16rem] text-base leading-relaxed text-ink-soft">
+            Ready when you are. Tap below to begin.
+          </p>
           <SpeakBlob
             onClick={onStart}
             size="hero"
@@ -261,7 +322,7 @@ function IdleView({
             </p>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 }
