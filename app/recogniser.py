@@ -9,18 +9,38 @@ building an ASR model, we are asking an audio-native LLM a well-framed question.
 from __future__ import annotations
 
 import asyncio
-import io
 import json
 import logging
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 
 from google import genai
 from google.genai import types
-from pydub import AudioSegment
 
 from app.config import settings
 from app.models import RecognitionSample
 
 log = logging.getLogger(__name__)
+
+
+def _ffmpeg_exe() -> str | None:
+    """Resolve an ffmpeg binary. Vercel has none on PATH; imageio-ffmpeg bundles one."""
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:  # noqa: BLE001
+        pass
+    return shutil.which("ffmpeg")
+
+
+_FFMPEG = _ffmpeg_exe()
+if _FFMPEG:
+    log.info("ffmpeg ready: %s", _FFMPEG)
+else:
+    log.warning("ffmpeg not found — webm/mp4 normalisation will fail")
 
 # Everything we send to and receive from Gemini, verbatim, at DEBUG level. Separate from
 # the module logger so it can be switched on alone -- this is high volume and you rarely
@@ -77,6 +97,18 @@ CANONICAL_MIME = "audio/mpeg"
 # wav is lossless so a transcode would only cost latency.
 PASSTHROUGH_MIMES = frozenset({"audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav"})
 
+# Hint for ffmpeg's demuxer when we write a temp file. Avoids pydub's ffprobe
+# dependency, which imageio-ffmpeg does not ship and Vercel does not provide.
+MIME_TO_EXT = {
+    "audio/webm": ".webm",
+    "audio/mp4": ".mp4",
+    "audio/m4a": ".m4a",
+    "audio/aac": ".aac",
+    "audio/ogg": ".ogg",
+    "audio/opus": ".opus",
+    "video/webm": ".webm",
+}
+
 
 def normalise(audio: bytes, mime_type: str) -> tuple[bytes, str]:
     """Decode whatever the browser produced and re-encode it to mp3.
@@ -100,18 +132,49 @@ def normalise(audio: bytes, mime_type: str) -> tuple[bytes, str]:
     if base in PASSTHROUGH_MIMES:
         return audio, CANONICAL_MIME if base == "audio/mp3" else base
 
+    if not _FFMPEG:
+        raise UnusableAudio(
+            f"could not decode {len(audio)} bytes of {mime_type}: ffmpeg is not available"
+        )
+
+    ext = MIME_TO_EXT.get(base, ".webm")
     try:
-        segment = AudioSegment.from_file(io.BytesIO(audio))
-        buffer = io.BytesIO()
-        segment.export(buffer, format="mp3")
-    except Exception as exc:  # noqa: BLE001 -- pydub raises bare Exception on ffmpeg failure
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / f"input{ext}"
+            dst = Path(tmp) / "output.mp3"
+            src.write_bytes(audio)
+            # -vn: audio only (MediaRecorder webm can be tagged as video/webm).
+            # Explicit paths mean we never need ffprobe for format sniffing.
+            proc = subprocess.run(
+                [
+                    _FFMPEG,
+                    "-y",
+                    "-i",
+                    str(src),
+                    "-vn",
+                    "-acodec",
+                    "libmp3lame",
+                    "-q:a",
+                    "4",
+                    str(dst),
+                ],
+                capture_output=True,
+                check=False,
+            )
+            if proc.returncode != 0 or not dst.exists() or dst.stat().st_size == 0:
+                stderr = (proc.stderr or b"").decode("utf-8", errors="replace")[-500:]
+                raise RuntimeError(
+                    f"ffmpeg exit {proc.returncode}: {stderr or 'no stderr'}"
+                )
+            return dst.read_bytes(), CANONICAL_MIME
+    except UnusableAudio:
+        raise
+    except Exception as exc:  # noqa: BLE001 -- surface decode failures cleanly
         raise UnusableAudio(
             f"could not decode {len(audio)} bytes of {mime_type}. If this came from "
             "MediaRecorder, check it is a complete recording rather than a timeslice "
             f"fragment: {exc}"
         ) from exc
-
-    return buffer.getvalue(), CANONICAL_MIME
 
 
 _client: genai.Client | None = None

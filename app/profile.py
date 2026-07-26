@@ -62,6 +62,15 @@ class ProfileStore:
                 "CREATE INDEX IF NOT EXISTS idx_confirmed_pairs_user_id "
                 "ON confirmed_pairs (user_id)"
             )
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_settings (
+                    user_id TEXT PRIMARY KEY,
+                    voice_id TEXT,
+                    updated_at REAL NOT NULL
+                )
+                """
+            )
             self._conn.commit()
 
     def add_pair(self, user_id: str, heard: str, said: str) -> ConfirmedPair:
@@ -106,9 +115,62 @@ class ProfileStore:
         )
         return cursor.fetchone()[0]
 
+    def first_pass_count(self, user_id: str) -> int:
+        """How many confirms accepted the model's best guess unchanged."""
+        cursor = self._conn.execute(
+            "SELECT heard, said FROM confirmed_pairs WHERE user_id = ?",
+            (user_id,),
+        )
+        return sum(
+            1
+            for heard, said in cursor.fetchall()
+            if heard.casefold().strip() == said.casefold().strip()
+        )
+
     def reset(self, user_id: str) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM confirmed_pairs WHERE user_id = ?", (user_id,))
+            self._conn.execute("DELETE FROM user_settings WHERE user_id = ?", (user_id,))
+            self._conn.commit()
+
+    def get_voice_id(self, user_id: str) -> str | None:
+        cursor = self._conn.execute(
+            "SELECT voice_id FROM user_settings WHERE user_id = ?",
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        voice_id = row[0]
+        return voice_id if voice_id else None
+
+    def set_voice_id(self, user_id: str, voice_id: str) -> None:
+        ts = time.time()
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO user_settings (user_id, voice_id, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    voice_id = excluded.voice_id,
+                    updated_at = excluded.updated_at
+                """,
+                (user_id, voice_id, ts),
+            )
+            self._conn.commit()
+
+    def clear_voice_id(self, user_id: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO user_settings (user_id, voice_id, updated_at)
+                VALUES (?, NULL, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    voice_id = NULL,
+                    updated_at = excluded.updated_at
+                """,
+                (user_id, time.time()),
+            )
             self._conn.commit()
 
 

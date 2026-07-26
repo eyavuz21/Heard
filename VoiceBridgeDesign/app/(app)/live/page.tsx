@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ConfirmView, WordFixView } from "@/components/TranscriptConfirm";
 import { SpeakBlob } from "@/components/ui/SpeakBlob";
 import {
@@ -9,12 +9,12 @@ import {
   createSession,
   deleteSession,
   getUserId,
-  postAmbient,
   postRelay,
   type ConfirmSource,
   type RelayResult,
   type WordOption,
 } from "@/lib/api";
+import { useAmbientScribe } from "@/lib/use-ambient-scribe";
 import { useRecorder } from "@/lib/use-recorder";
 import {
   wordsFromTranscript,
@@ -33,8 +33,6 @@ export default function LivePage() {
   const [state, setState] = useState<LiveState>("idle");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [partnerText, setPartnerText] = useState("");
-  const [partnerTarget, setPartnerTarget] = useState("");
-  const [charIndex, setCharIndex] = useState(0);
   const [relayResult, setRelayResult] = useState<RelayResult | null>(null);
   const [words, setWords] = useState<WordOption[]>([]);
   const [source, setSource] = useState<ConfirmSource>("best");
@@ -50,101 +48,21 @@ export default function LivePage() {
   const selectedWord =
     selectedWordIndex !== null ? words[selectedWordIndex] : null;
 
-  useEffect(() => {
-    if (charIndex >= partnerTarget.length) return;
-    const t = setTimeout(() => {
-      setPartnerText(partnerTarget.slice(0, charIndex + 1));
-      setCharIndex((c) => c + 1);
-    }, 38);
-    return () => clearTimeout(t);
-  }, [partnerTarget, charIndex]);
-
-  useEffect(() => {
-    if (state !== "listening" || !sessionId) return;
-
-    const activeSessionId = sessionId;
-    let stream: MediaStream | null = null;
-    let recorder: MediaRecorder | null = null;
-    let cancelled = false;
-
-    // One complete recording per cycle, NOT recorder.start(timeslice).
-    //
-    // In timeslice mode only the first chunk carries the container header: Safari emits
-    // fragmented MP4 where chunk 1 is ftyp+moov and the rest are bare moof+mdat, and
-    // Chrome's webm behaves the same way. Posting those later fragments individually
-    // sends the backend headerless bytes that ffmpeg cannot decode ("no tfhd was found",
-    // "error reading header"), so every chunk after the first fails.
-    //
-    // Stopping and restarting produces a self-contained file each time. The cost is a
-    // few tens of milliseconds of silence between windows, which does not matter for
-    // ambient context -- it is a prior for the recogniser, not the utterance itself.
-    const WINDOW_MS = 5000;
-
-    async function recordWindow(activeStream: MediaStream): Promise<Blob> {
-      return new Promise((resolve) => {
-        const chunks: Blob[] = [];
-        const windowRecorder = new MediaRecorder(activeStream);
-        recorder = windowRecorder;
-
-        windowRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) chunks.push(event.data);
-        };
-        windowRecorder.onstop = () => {
-          resolve(new Blob(chunks, { type: windowRecorder.mimeType || "audio/webm" }));
-        };
-
-        windowRecorder.start();
-        setTimeout(() => {
-          if (windowRecorder.state === "recording") windowRecorder.stop();
-        }, WINDOW_MS);
-      });
-    }
-
-    async function startAmbient() {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch {
-        setPartnerTarget("");
-        return;
-      }
-
-      while (!cancelled && stream) {
-        const clip = await recordWindow(stream);
-        if (cancelled || clip.size === 0) continue;
-
-        try {
-          const result = await postAmbient(activeSessionId, clip);
-          if (cancelled || !result.appended || !result.text.trim()) continue;
-          setPartnerTarget(result.text);
-          setPartnerText("");
-          setCharIndex(0);
-        } catch (err) {
-          if (err instanceof ApiError && err.kind === "not_found") {
-            setErrorMessage("Session expired — restart the conversation.");
-            setState("idle");
-            return;
-          }
-          // Any other ambient failure is non-fatal: context is a nice-to-have, and the
-          // user can still tap and speak. Keep listening rather than killing the loop.
-        }
-      }
-    }
-
-    void startAmbient();
-
-    return () => {
-      cancelled = true;
-      if (recorder?.state === "recording") recorder.stop();
-      stream?.getTracks().forEach((track) => track.stop());
-    };
-  }, [sessionId, state]);
+  useAmbientScribe({
+    sessionId,
+    enabled: state === "listening",
+    onPartial: (text) => setPartnerText(text),
+    onCommitted: (text) => setPartnerText(text),
+    onSessionLost: () => {
+      setErrorMessage("Session expired — restart the conversation.");
+      setState("idle");
+    },
+  });
 
   async function startConversation() {
     setErrorMessage(null);
     setConfirmedMessages([]);
     setPartnerText("");
-    setPartnerTarget("");
-    setCharIndex(0);
     try {
       const session = await createSession(getUserId());
       setSessionId(session.session_id);
@@ -161,8 +79,6 @@ export default function LivePage() {
     recorder.cancel();
     setState("idle");
     setPartnerText("");
-    setPartnerTarget("");
-    setCharIndex(0);
     setShowWrongActions(false);
     setSelectedWordIndex(null);
   }
@@ -190,7 +106,7 @@ export default function LivePage() {
     setState("processing");
     try {
       const audio = await recorder.stop();
-      const result = await postRelay(sessionId, audio);
+      const result = await postRelay(sessionId, audio, { useProfile: false });
       setRelayResult(result);
       setWords(result.words.length ? result.words : toWordOptions(result.best));
       setSource("best");
@@ -220,8 +136,6 @@ export default function LivePage() {
       setShowWrongActions(false);
       setSelectedWordIndex(null);
       setPartnerText("");
-      setPartnerTarget("");
-      setCharIndex(0);
       setState("listening");
     } catch (err) {
       setErrorMessage(messageForError(err));

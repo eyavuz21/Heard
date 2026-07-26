@@ -1,27 +1,30 @@
 export const storyBeats = [
   {
-    id: "problem",
-    eyebrow: "The problem",
-    title: "Speech that is hard to understand shouldn’t mean being unheard.",
-    body: "Dysarthria affects how speech is produced — making everyday conversation exhausting, and often incomplete.",
-  },
-  {
-    id: "market",
-    eyebrow: "Who it’s for",
-    title: "Millions of people live with dysarthria.",
-    body: "It can follow stroke, cerebral palsy, Parkinson’s, ALS, and other neurological conditions. Communication tools rarely meet them halfway.",
+    id: "need",
+    eyebrow: "The need",
+    title: "90%",
+    body: "of people with Parkinson’s lose reliable speech — 12M people, doubling by 2050.",
+    cite: "J. Parkinson’s Research 2023; Global Burden of Disease / BMJ 2024",
   },
   {
     id: "gap",
     eyebrow: "The gap",
-    title: "Most voice tech assumes clear speech.",
-    body: "Standard transcription fails quietly. Typing is slow and inaccessible for many. The result: fewer conversations, less independence.",
+    title: "~50%",
+    body: "how well Siri & Alexa understand their speech. The tools meant to help don’t.",
+    cite: "EURASIP J. Audio, Speech & Music Processing, 2023",
+  },
+  {
+    id: "cost",
+    eyebrow: "The cost",
+    title: "Silence.",
+    body: "Isolation, loneliness, lost independence.",
+    cite: "Communicative Participation in Dysarthria, 2022",
   },
   {
     id: "heard",
     eyebrow: "Heard",
-    title: "A calmer way to be understood.",
-    body: "Live listening for partners. Careful processing when you speak. Confirm with taps — not typing. Share as voice, text, or avatar.",
+    title: "They still have the words.",
+    body: "We make sure they’re heard.",
+    cite: "",
   },
 ] as const;
-

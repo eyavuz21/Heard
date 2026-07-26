@@ -1,5 +1,6 @@
 """Configuration. Everything tunable lives here, nothing tunable lives anywhere else."""
 
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -8,6 +9,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 load_dotenv()
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _default_profile_db_path() -> Path:
+    # Vercel's function filesystem is ephemeral; /tmp is the writable location.
+    if os.getenv("VERCEL"):
+        return Path("/tmp") / "heard-profiles.db"
+    return REPO_ROOT / "data" / "profiles.db"
 
 
 class Settings(BaseSettings):
@@ -65,7 +73,7 @@ class Settings(BaseSettings):
     max_thread_turns: int = 6
     max_vocabulary_words: int = 40
 
-    profile_db_path: Path = REPO_ROOT / "data" / "profiles.db"
+    profile_db_path: Path = _default_profile_db_path()
 
 
 settings = Settings()

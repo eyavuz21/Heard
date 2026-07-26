@@ -57,6 +57,24 @@ export type Voice = {
   accent: string;
 };
 
+export type ConfirmedPair = {
+  heard: string;
+  said: string;
+  ts: number;
+};
+
+export type Profile = {
+  user_id: string;
+  pair_count: number;
+  first_pass_count: number;
+  recent_pairs: ConfirmedPair[];
+  vocabulary: string[];
+  voice_id: string | null;
+};
+
+export const DEFAULT_VOICE_ID = "LcfcDJNUP1GQjkzn1xUU"; // Emily
+export const DEFAULT_VOICE_LABEL = "Emily";
+
 export function getUserId(): string {
   const key = "heard:user-id";
   const existing = window.localStorage.getItem(key);
@@ -81,18 +99,37 @@ export async function deleteSession(sessionId: string): Promise<{ cleared: boole
   return requestJson(`/session/${sessionId}`, { method: "DELETE" });
 }
 
+export async function createScribeToken(
+  sessionId: string,
+): Promise<{ token: string }> {
+  return requestJson(`/session/${sessionId}/scribe-token`, { method: "POST" });
+}
+
 export async function postAmbient(
   sessionId: string,
-  audio: Blob,
+  text: string,
 ): Promise<{ text: string; appended: boolean }> {
   return requestJson(`/session/${sessionId}/ambient`, {
     method: "POST",
-    body: audioForm(audio),
+    body: JSON.stringify({ text }),
   });
 }
 
-export async function postRelay(sessionId: string, audio: Blob): Promise<RelayResult> {
-  return requestJson(`/session/${sessionId}/relay`, {
+export async function postRelay(
+  sessionId: string,
+  audio: Blob,
+  options?: { useProfile?: boolean },
+): Promise<RelayResult> {
+  // Live turns off profile/DB few-shots; Share keeps them for personalised recovery.
+  const suffix = options?.useProfile === false ? "?use_profile=false" : "";
+  console.info("[heard/api] postRelay", {
+    sessionId,
+    bytes: audio.size,
+    type: audio.type,
+    useProfile: options?.useProfile !== false,
+    url: `${API_BASE_URL}/session/${sessionId}/relay${suffix}`,
+  });
+  return requestJson(`/session/${sessionId}/relay${suffix}`, {
     method: "POST",
     body: audioForm(audio),
   });
@@ -125,6 +162,43 @@ export async function getVoices(): Promise<Voice[]> {
   return requestJson("/voices");
 }
 
+export async function getProfile(userId: string): Promise<Profile> {
+  return requestJson(`/profile/${userId}`);
+}
+
+export async function cloneVoice(
+  userId: string,
+  samples: Blob[],
+): Promise<{ voice_id: string; label: string }> {
+  const form = new FormData();
+  samples.forEach((sample, index) => {
+    form.append("files", sample, `sample-${index + 1}.webm`);
+  });
+  return requestJson(`/profile/${userId}/voice/clone`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+export async function resetVoice(
+  userId: string,
+): Promise<{ voice_id: string; label: string }> {
+  return requestJson(`/profile/${userId}/voice`, { method: "DELETE" });
+}
+
+export async function synthesizeSpeech(
+  text: string,
+  voice_id?: string | null,
+): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/tts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, voice_id: voice_id || undefined }),
+  });
+  if (!response.ok) throw await toApiError(response);
+  return response.blob();
+}
+
 function audioForm(audio: Blob): FormData {
   const form = new FormData();
   form.append("audio", audio, "recording.webm");
@@ -132,11 +206,28 @@ function audioForm(audio: Blob): FormData {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const url = `${API_BASE_URL}${path}`;
+  const method = init?.method ?? "GET";
+  console.info("[heard/api] →", method, url);
+  const started = performance.now();
   const headers =
     init?.body instanceof FormData
       ? init.headers
       : { "Content-Type": "application/json", ...init?.headers };
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  let response: Response;
+  try {
+    response = await fetch(url, { ...init, headers });
+  } catch (err) {
+    console.error("[heard/api] network error", method, url, err);
+    throw err;
+  }
+  console.info(
+    "[heard/api] ←",
+    method,
+    url,
+    response.status,
+    `${Math.round(performance.now() - started)}ms`,
+  );
   if (!response.ok) throw await toApiError(response);
   return response.json();
 }
@@ -149,5 +240,6 @@ async function toApiError(response: Response): Promise<ApiError> {
   } catch {
     detail = await response.text().catch(() => detail);
   }
+  console.error("[heard/api] error body", response.status, detail);
   return new ApiError(response.status, detail);
 }

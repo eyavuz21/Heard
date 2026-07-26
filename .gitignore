@@ -15,3 +15,11 @@ data/
 evals/fixtures/segments/
 .pytest_cache/
 evals/fixtures/probes/
+
+# Vercel
+.vercel
+**/.vercel
+
+# Node (root install is local-only; the app lives in VoiceBridgeDesign/)
+/node_modules/
+/package-lock.json

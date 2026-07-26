@@ -18,18 +18,22 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
-from app import gate, recogniser, tts
+from app import gate, recogniser, scribe, tts
 from app.config import settings
 from app.models import (
     AmbientResponse,
+    AmbientTextRequest,
     ClearedResponse,
+    CloneVoiceResponse,
     ConfirmRequest,
     CreateSessionRequest,
     CreateSessionResponse,
     ProfileResponse,
     RelayResult,
+    ScribeTokenResponse,
     Speaker,
     ThreadResponse,
+    TtsRequest,
     Voice,
 )
 from app.profile import profile_store
@@ -82,28 +86,31 @@ async def create_session(req: CreateSessionRequest) -> CreateSessionResponse:
     return CreateSessionResponse(session_id=session.session_id)
 
 
-@app.post("/session/{session_id}/ambient", response_model=AmbientResponse)
-async def ambient(session_id: str, audio: UploadFile = File(...)) -> AmbientResponse:
-    """Transcribe the other speaker and append to the conversation thread.
+@app.post("/session/{session_id}/scribe-token", response_model=ScribeTokenResponse)
+async def scribe_token(session_id: str) -> ScribeTokenResponse:
+    """Mint a single-use ElevenLabs token for client-side ambient realtime STT.
 
-    Their audio exists only inside this function. It is never written to disk, never
-    returned, and nothing derived from it reaches the user's profile -- we are processing
-    a third party's voice without their consent to store it, so we don't store it.
+    The API key stays on the server. The browser uses this token to stream mic audio
+    straight to ElevenLabs; we never see that audio.
     """
     _require_session(session_id)
-    data = await audio.read()
-
     try:
-        text = await recogniser.transcribe_ambient(data, audio.content_type or "audio/webm")
-    except recogniser.UnusableAudio as exc:
-        # Best-effort by design. Ambient is context, not the utterance someone is waiting
-        # on, so an undecodable chunk is dropped quietly rather than surfaced as an error
-        # that would interrupt a conversation in progress.
-        log.warning("ambient chunk not decodable, dropping: %s", exc)
-        return AmbientResponse(text="", appended=False)
-    finally:
-        del data  # explicit, because this is the one thing we promised not to keep
+        token = await scribe.create_realtime_token()
+    except scribe.ScribeUnavailable as exc:
+        raise HTTPException(503, f"scribe unavailable: {exc}") from exc
+    return ScribeTokenResponse(token=token)
 
+
+@app.post("/session/{session_id}/ambient", response_model=AmbientResponse)
+async def ambient(session_id: str, req: AmbientTextRequest) -> AmbientResponse:
+    """Append a committed ambient transcript to the conversation thread.
+
+    Transcription happens in the browser via ElevenLabs Scribe realtime. We only receive
+    the final text -- never the other speaker's audio -- and nothing derived from it
+    reaches the user's profile.
+    """
+    _require_session(session_id)
+    text = req.text.strip()
     if not text:
         return AmbientResponse(text="", appended=False)
 
@@ -112,15 +119,34 @@ async def ambient(session_id: str, audio: UploadFile = File(...)) -> AmbientResp
 
 
 @app.post("/session/{session_id}/relay", response_model=RelayResult)
-async def relay(session_id: str, audio: UploadFile = File(...)) -> RelayResult:
-    """Recover what the user meant. Does not speak -- see /relay/{id}/confirm."""
+async def relay(
+    session_id: str,
+    audio: UploadFile = File(...),
+    use_profile: bool = True,
+) -> RelayResult:
+    """Recover what the user meant. Does not speak -- see /relay/{id}/confirm.
+
+    Live passes `use_profile=false` so recognition ignores saved pairs/vocabulary and
+    only uses this session's ambient thread. Share keeps the full profile context.
+    """
     session = _require_session(session_id)
     data = await audio.read()
 
+    pairs = (
+        profile_store.recent_pairs(session.user_id, settings.max_confirmed_pairs)
+        if use_profile
+        else []
+    )
+    vocabulary = (
+        profile_store.vocabulary(session.user_id, settings.max_vocabulary_words)
+        if use_profile
+        else []
+    )
+
     prompt = compiler.compile(
         level=ContextLevel.FULL,
-        pairs=profile_store.recent_pairs(session.user_id, settings.max_confirmed_pairs),
-        vocabulary=profile_store.vocabulary(session.user_id, settings.max_vocabulary_words),
+        pairs=pairs,
+        vocabulary=vocabulary,
         thread=session_store.recent_turns(session_id, settings.max_thread_turns),
     ).text
 
@@ -166,7 +192,12 @@ async def confirm(relay_id: str, req: ConfirmRequest) -> Response:
 
     profile_store.add_pair(user_id, heard=heard, said=chosen_text)
 
-    audio = await tts.synthesize(chosen_text, req.voice_id)
+    # Prefer an explicit request voice, else the user's cloned voice, else Emily.
+    voice_id = req.voice_id or profile_store.get_voice_id(user_id)
+    try:
+        audio = await tts.synthesize(chosen_text, voice_id)
+    except tts.TtsUnavailable as exc:
+        raise HTTPException(503, f"speech unavailable: {exc}") from exc
     return Response(
         content=audio,
         media_type="audio/mpeg",
@@ -207,6 +238,19 @@ async def voices() -> list[Voice]:
     return tts.VOICES
 
 
+@app.post("/tts")
+async def speak(req: TtsRequest) -> Response:
+    """Preview speak-out. Defaults to Emily when no voice_id is provided."""
+    text = req.text.strip()
+    if not text:
+        raise HTTPException(400, "text must not be empty")
+    try:
+        audio = await tts.synthesize(text, req.voice_id)
+    except tts.TtsUnavailable as exc:
+        raise HTTPException(503, f"speech unavailable: {exc}") from exc
+    return Response(content=audio, media_type="audio/mpeg")
+
+
 @app.get("/profile/{user_id}", response_model=ProfileResponse)
 async def profile(user_id: str) -> ProfileResponse:
     """Exposed so the interface can show the learning loop happening -- watching the
@@ -214,9 +258,64 @@ async def profile(user_id: str) -> ProfileResponse:
     return ProfileResponse(
         user_id=user_id,
         pair_count=profile_store.pair_count(user_id),
-        recent_pairs=profile_store.recent_pairs(user_id, 10),
+        first_pass_count=profile_store.first_pass_count(user_id),
+        recent_pairs=profile_store.recent_pairs(user_id, 50),
         vocabulary=profile_store.vocabulary(user_id, settings.max_vocabulary_words),
+        voice_id=profile_store.get_voice_id(user_id),
     )
+
+
+@app.post("/profile/{user_id}/voice/clone", response_model=CloneVoiceResponse)
+async def clone_user_voice(
+    user_id: str,
+    files: list[UploadFile] = File(...),
+) -> CloneVoiceResponse:
+    """Create an ElevenLabs Instant Voice Clone from the user's sample(s).
+
+    Used by Customise avatar. The resulting voice_id is stored on the profile and used
+    for subsequent speak-out. Defaults remain Emily until this succeeds.
+    """
+    samples: list[tuple[str, bytes, str]] = []
+    for upload in files:
+        data = await upload.read()
+        if not data:
+            continue
+        samples.append(
+            (
+                upload.filename or "sample.webm",
+                data,
+                upload.content_type or "audio/webm",
+            )
+        )
+    if not samples:
+        raise HTTPException(400, "at least one non-empty audio sample is required")
+
+    try:
+        voice_id = await tts.clone_instant_voice(
+            name=f"Heard {user_id[:8]}",
+            samples=samples,
+        )
+    except tts.TtsUnavailable as exc:
+        message = str(exc)
+        # Bad samples / auth / plan limits are client problems; missing key / outage are 503.
+        client_error = "unusable audio" in message or any(
+            f"({code})" in message for code in (400, 401, 402, 403, 422)
+        )
+        log.warning("voice clone failed for %s: %s", user_id, message)
+        raise HTTPException(
+            400 if client_error else 503,
+            f"voice clone unavailable: {message}",
+        ) from exc
+
+    profile_store.set_voice_id(user_id, voice_id)
+    return CloneVoiceResponse(voice_id=voice_id, label="Your voice")
+
+
+@app.delete("/profile/{user_id}/voice", response_model=CloneVoiceResponse)
+async def reset_user_voice(user_id: str) -> CloneVoiceResponse:
+    """Clear a cloned voice and fall back to Emily."""
+    profile_store.clear_voice_id(user_id)
+    return CloneVoiceResponse(voice_id=tts.DEFAULT_VOICE_ID, label=tts.DEFAULT_VOICE_LABEL)
 
 
 def _require_session(session_id: str):

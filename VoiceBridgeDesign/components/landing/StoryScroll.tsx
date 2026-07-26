@@ -72,6 +72,14 @@ export function StoryScroll() {
           >
             {beat.body}
           </p>
+          {beat.cite ? (
+            <p
+              key={`${beat.id}-cite`}
+              className="story-fade mt-5 text-[11px] font-medium leading-snug text-ink-mute"
+            >
+              {beat.cite}
+            </p>
+          ) : null}
         </div>
 
         <div className="mx-auto mt-8 flex w-full max-w-[22rem] gap-2" aria-hidden>

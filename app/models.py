@@ -41,15 +41,31 @@ class ConfirmRequest(BaseModel):
     voice_id: str | None = None
 
 
+class AmbientTextRequest(BaseModel):
+    """A committed ambient transcript from ElevenLabs Scribe realtime.
+
+    Audio never reaches this API -- the browser streams it to ElevenLabs directly.
+    We only accept the final text so it can sit in the in-memory thread as context.
+    """
+
+    text: str
+
+
 # --- responses ------------------------------------------------------------------
 
 class CreateSessionResponse(BaseModel):
     session_id: str
 
 
+class ScribeTokenResponse(BaseModel):
+    """Single-use ElevenLabs token for a client-side Scribe realtime connection."""
+
+    token: str
+
+
 class AmbientResponse(BaseModel):
-    """Result of transcribing the other speaker. Deliberately returns text only --
-    there is no audio handle here because the audio no longer exists."""
+    """Result of appending the other speaker's committed text. Deliberately returns
+    text only -- their audio never reached this process."""
 
     text: str
     appended: bool
@@ -113,8 +129,22 @@ class ProfileResponse(BaseModel):
 
     user_id: str
     pair_count: int
+    # Confirms where heard == said (model was accepted without edits).
+    first_pass_count: int = 0
     recent_pairs: list[ConfirmedPair]
     vocabulary: list[str]
+    # None / missing means the stock Emily default. A set value is the user's IVC.
+    voice_id: str | None = None
+
+
+class CloneVoiceResponse(BaseModel):
+    voice_id: str
+    label: str
+
+
+class TtsRequest(BaseModel):
+    text: str
+    voice_id: str | None = None
 
 
 class ConfirmedPair(BaseModel):

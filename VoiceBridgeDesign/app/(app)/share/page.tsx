@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CustomiseAvatar } from "@/components/CustomiseAvatar";
 import { ConfirmView, WordFixView } from "@/components/TranscriptConfirm";
 import { BigButton } from "@/components/ui/BigButton";
 import { SpeakBlob } from "@/components/ui/SpeakBlob";
@@ -23,12 +24,23 @@ import {
   wordsFromTranscript,
 } from "@/lib/mock-data";
 
-type ShareState = "idle" | "recording" | "processing" | "confirm" | "wordFix" | "share";
+type ShareState =
+  | "idle"
+  | "recording"
+  | "processing"
+  | "confirm"
+  | "wordFix"
+  | "preparingVoice"
+  | "share"
+  | "customise";
 
 type ShareKind = "avatar" | "voice" | "text";
 
+const AVATAR_VIDEO_SRC = "/avatar-preview.mp4";
+
 export default function SharePage() {
   const [state, setState] = useState<ShareState>("idle");
+  const [returnState, setReturnState] = useState<ShareState>("idle");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [relayResult, setRelayResult] = useState<RelayResult | null>(null);
   const [selectedSuggestion, setSelectedSuggestion] = useState<string | null>(
@@ -38,6 +50,7 @@ export default function SharePage() {
   const [source, setSource] = useState<ConfirmSource>("best");
   const [hasEdited, setHasEdited] = useState(false);
   const [voiceMemo, setVoiceMemo] = useState<Blob | null>(null);
+  const [voiceMemoUrl, setVoiceMemoUrl] = useState<string | null>(null);
   const [showWrongActions, setShowWrongActions] = useState(false);
   const [selectedWordIndex, setSelectedWordIndex] = useState<number | null>(
     null,
@@ -57,11 +70,35 @@ export default function SharePage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  function showComingSoon(label: string) {
-    setToast(`${label} — coming soon`);
+  useEffect(() => {
+    return () => {
+      if (voiceMemoUrl) URL.revokeObjectURL(voiceMemoUrl);
+    };
+  }, [voiceMemoUrl]);
+
+  function openCustomise() {
+    setReturnState(state === "customise" ? "idle" : state);
+    setState("customise");
+  }
+
+  function clearVoiceMemo() {
+    setVoiceMemoUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setVoiceMemo(null);
+  }
+
+  function setVoiceMemoBlob(audio: Blob) {
+    setVoiceMemoUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(audio);
+    });
+    setVoiceMemo(audio);
   }
 
   async function startRecording() {
+    console.info("[heard/share] startRecording", { sessionId });
     const oldSessionId = sessionId;
     if (oldSessionId) {
       await deleteSession(oldSessionId).catch(() => undefined);
@@ -69,7 +106,7 @@ export default function SharePage() {
     }
     setErrorMessage(null);
     setRelayResult(null);
-    setVoiceMemo(null);
+    clearVoiceMemo();
     setWords([]);
     setHasEdited(false);
     setShowWrongActions(false);
@@ -79,20 +116,30 @@ export default function SharePage() {
       const session = await createSession(getUserId());
       createdSessionId = session.session_id;
       setSessionId(session.session_id);
+      console.info("[heard/share] session created", session.session_id);
       setState("recording");
       await recorder.start();
-    } catch {
+      console.info("[heard/share] recorder started");
+    } catch (err) {
+      console.error("[heard/share] startRecording failed", err);
       if (createdSessionId) {
         await deleteSession(createdSessionId).catch(() => undefined);
         setSessionId(null);
       }
+      setErrorMessage(
+        err instanceof Error
+          ? err.message
+          : "Recording is not available in this browser",
+      );
       setToast("Recording is not available in this browser");
       setState("idle");
     }
   }
 
   async function stopRecording() {
+    console.info("[heard/share] stopRecording clicked", { sessionId });
     if (!sessionId) {
+      console.error("[heard/share] no sessionId at stop");
       setErrorMessage("Session expired — record again.");
       setState("idle");
       return;
@@ -100,16 +147,64 @@ export default function SharePage() {
     setState("processing");
     try {
       const audio = await recorder.stop();
+      console.info("[heard/share] audio ready", {
+        bytes: audio.size,
+        type: audio.type,
+      });
       const result = await postRelay(sessionId, audio);
+      console.info("[heard/share] relay result", {
+        relay_id: result.relay_id,
+        best: result.best,
+        confidence: result.confidence,
+        needs_confirmation: result.needs_confirmation,
+      });
       setRelayResult(result);
       setWords(result.words.length ? result.words : toWordOptions(result.best));
       setSource("best");
       setHasEdited(false);
+      setErrorMessage(null);
       setState("confirm");
     } catch (err) {
+      console.error("[heard/share] stopRecording failed", err);
       setErrorMessage(messageForError(err));
       setState("idle");
     }
+  }
+
+  async function confirmTranscript() {
+    const text = transcript.trim();
+    if (!text) return;
+
+    // Already synthesized — just return to share options.
+    if (voiceMemo) {
+      setState("share");
+      return;
+    }
+    if (!relayResult) return;
+
+    setErrorMessage(null);
+    setState("preparingVoice");
+    try {
+      const audio = await confirmRelay(relayResult.relay_id, text, source);
+      setVoiceMemoBlob(audio);
+      if (sessionId) {
+        await deleteSession(sessionId).catch(() => undefined);
+        setSessionId(null);
+      }
+      setState("share");
+    } catch (err) {
+      setErrorMessage(messageForError(err));
+      setState("confirm");
+    }
+  }
+
+  async function loadAvatarVideoFile(): Promise<File> {
+    const response = await fetch(AVATAR_VIDEO_SRC);
+    if (!response.ok) throw new Error("avatar video missing");
+    const blob = await response.blob();
+    return new File([blob], "heard-avatar.mp4", {
+      type: blob.type || "video/mp4",
+    });
   }
 
   async function openSystemShare(kind: ShareKind) {
@@ -119,24 +214,55 @@ export default function SharePage() {
       text: "Text",
     };
 
-    if (kind === "avatar") {
-      showComingSoon("Avatar video");
-      return;
-    }
-
     const title = `Heard — ${labels[kind]}`;
     let payload: ShareData = { title, text: transcript };
+    let downloadFallback: { url: string; filename: string; revoke?: boolean } | null =
+      null;
+
+    if (kind === "avatar") {
+      try {
+        const file = await loadAvatarVideoFile();
+        const canShareFiles =
+          typeof navigator !== "undefined" &&
+          typeof navigator.canShare === "function" &&
+          navigator.canShare({ files: [file] });
+        payload = canShareFiles
+          ? { title, text: transcript, files: [file] }
+          : { title, text: `${transcript}\n\nAvatar video is ready in Heard.` };
+        if (!canShareFiles) {
+          downloadFallback = {
+            url: AVATAR_VIDEO_SRC,
+            filename: "heard-avatar.mp4",
+          };
+        }
+      } catch {
+        setToast("Avatar video isn’t available right now.");
+        return;
+      }
+    }
 
     if (kind === "voice") {
-      const audio = await ensureVoiceMemo();
-      if (!audio) return;
+      const audio = voiceMemo;
+      if (!audio) {
+        setToast("Voice memo isn’t ready — confirm the transcript again.");
+        return;
+      }
       const file = new File([audio], "heard-message.mp3", { type: "audio/mpeg" });
-      payload =
+      const canShareFiles =
         typeof navigator !== "undefined" &&
         typeof navigator.canShare === "function" &&
-        navigator.canShare({ files: [file] })
-          ? { title, text: transcript, files: [file] }
-          : { title, text: `${transcript}\n\nVoice memo is ready in Heard.` };
+        navigator.canShare({ files: [file] });
+      payload = canShareFiles
+        ? { title, text: transcript, files: [file] }
+        : { title, text: `${transcript}\n\nVoice memo is ready in Heard.` };
+      if (!canShareFiles) {
+        const url = voiceMemoUrl ?? URL.createObjectURL(audio);
+        downloadFallback = {
+          url,
+          filename: "heard-message.mp3",
+          revoke: !voiceMemoUrl,
+        };
+      }
     }
 
     if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
@@ -149,28 +275,23 @@ export default function SharePage() {
       }
     }
 
+    if (downloadFallback) {
+      const anchor = document.createElement("a");
+      anchor.href = downloadFallback.url;
+      anchor.download = downloadFallback.filename;
+      anchor.click();
+      if (downloadFallback.revoke) URL.revokeObjectURL(downloadFallback.url);
+      setToast(
+        kind === "avatar" ? "Avatar video downloaded" : "Voice memo downloaded",
+      );
+      return;
+    }
+
     try {
       await navigator.clipboard?.writeText(payload.text ?? transcript);
       setToast("Copied — open Share from your device if the sheet didn’t appear");
     } catch {
       setToast("Sharing isn’t available in this browser");
-    }
-  }
-
-  async function ensureVoiceMemo(): Promise<Blob | null> {
-    if (voiceMemo) return voiceMemo;
-    if (!relayResult || !transcript.trim()) return null;
-    try {
-      const audio = await confirmRelay(relayResult.relay_id, transcript, source);
-      setVoiceMemo(audio);
-      if (sessionId) {
-        await deleteSession(sessionId).catch(() => undefined);
-        setSessionId(null);
-      }
-      return audio;
-    } catch (err) {
-      setToast(messageForError(err));
-      return null;
     }
   }
 
@@ -202,19 +323,29 @@ export default function SharePage() {
     <div className="relative flex h-full min-h-full flex-col px-5 pb-4 pt-5">
       <Toast message={toast ?? ""} visible={Boolean(toast)} />
 
-      {(state === "idle" || state === "recording" || state === "share") && (
+      {(state === "idle" ||
+        state === "recording" ||
+        state === "preparingVoice" ||
+        state === "share") && (
         <header className="mb-5 flex items-center justify-between">
           <h1 className="text-[11px] font-bold uppercase tracking-[0.28em] text-ink">
             Heard
           </h1>
           <button
             type="button"
-            onClick={() => showComingSoon("Customise avatar")}
+            onClick={openCustomise}
             className="min-h-12 rounded-full border border-line bg-white px-4 text-sm font-semibold text-ink-soft transition hover:bg-surface-muted active:scale-[0.98]"
           >
             Customise avatar
           </button>
         </header>
+      )}
+
+      {state === "customise" && (
+        <CustomiseAvatar
+          onClose={() => setState(returnState === "customise" ? "idle" : returnState)}
+          onToast={setToast}
+        />
       )}
 
       {state === "idle" && (
@@ -225,6 +356,12 @@ export default function SharePage() {
           <p className="mt-2 text-base leading-relaxed text-ink-soft">
             Not a live conversation — record once, then send.
           </p>
+
+          {errorMessage && (
+            <p className="mt-4 rounded-2xl bg-[#f8e8ec] px-4 py-3 text-sm font-semibold text-[#6b1530]">
+              {errorMessage}
+            </p>
+          )}
 
           <p className="mt-7 mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-ink-mute">
             Suggestions for you
@@ -286,6 +423,20 @@ export default function SharePage() {
         </div>
       )}
 
+      {state === "preparingVoice" && (
+        <div className="flex flex-1 flex-col items-center justify-center animate-fade-up">
+          <div className="mb-6">
+            <SpeakBlob aria-label="Preparing voice memo" label="…" />
+          </div>
+          <p className="text-[24px] font-semibold tracking-tight text-ink">
+            Preparing your voice memo…
+          </p>
+          <p className="mt-3 max-w-[16rem] text-center text-sm text-ink-mute">
+            ElevenLabs is reading your message aloud so you can preview and share it.
+          </p>
+        </div>
+      )}
+
       {state === "confirm" && relayResult && (
         <ConfirmView
           best={relayResult.best}
@@ -296,7 +447,7 @@ export default function SharePage() {
           showWrongActions={showWrongActions}
           selectedWordIndex={selectedWordIndex}
           errorMessage={errorMessage}
-          onCorrect={() => setState("share")}
+          onCorrect={() => void confirmTranscript()}
           onWrong={() => setShowWrongActions(true)}
           onRerecord={() => {
             setShowWrongActions(false);
@@ -328,20 +479,55 @@ export default function SharePage() {
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-ink-mute">
             Share as
           </p>
-          <p className="mt-2 mb-6 line-clamp-2 text-base text-ink-soft">
+          <p className="mt-2 mb-5 line-clamp-2 text-base text-ink-soft">
             {transcript}
           </p>
+
+          <div className="share-voice-preview mb-5">
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-ink-mute">
+              Avatar preview
+            </p>
+            <video
+              controls
+              playsInline
+              preload="metadata"
+              src={AVATAR_VIDEO_SRC}
+              className="share-avatar-video"
+            >
+              Your browser does not support video playback.
+            </video>
+          </div>
+
+          {voiceMemoUrl && (
+            <div className="share-voice-preview mb-5">
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-ink-mute">
+                Voice memo preview
+              </p>
+              <audio
+                controls
+                src={voiceMemoUrl}
+                preload="metadata"
+                className="share-voice-audio"
+              >
+                Your browser does not support audio playback.
+              </audio>
+            </div>
+          )}
 
           <div className="share-options">
             <ShareChoice
               title="Avatar video"
-              subtitle="Speak with your custom avatar"
+              subtitle="Share this avatar clip"
               tone="avatar"
               onClick={() => void openSystemShare("avatar")}
             />
             <ShareChoice
               title="Voice memo"
-              subtitle="Reconstructed voice recording"
+              subtitle={
+                voiceMemo
+                  ? "Share the audio file"
+                  : "Reconstructed voice recording"
+              }
               tone="voice"
               onClick={() => void openSystemShare("voice")}
             />
@@ -382,11 +568,21 @@ function toWordOptions(text: string): WordOption[] {
 function messageForError(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.kind === "unavailable") {
-      return "Something's wrong on our end — try again in a moment.";
+      return err.message || "Something's wrong on our end — try again in a moment.";
     }
     if (err.kind === "not_found") {
       return "Session expired — record again.";
     }
+    if (err.kind === "bad_request") {
+      return err.message || "That recording couldn’t be used — try again.";
+    }
+    return err.message || "Something went wrong — try again.";
+  }
+  if (err instanceof TypeError) {
+    return "Can’t reach the API — check the network connection.";
+  }
+  if (err instanceof Error && err.message) {
+    return err.message;
   }
   return "Something went wrong — try again.";
 }
