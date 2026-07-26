@@ -125,6 +125,13 @@ Greenfield hackathon build. Core loop first: **listen → Speak → recover → 
 
 Heard is an **assistive communication aid, not a medical device** — no diagnosis, no clinical claims. Voice and likeness features use the user's own voice and face with consent.
 
+## Team
+
+- **Emre Yavuz**
+- **Sevara Bakhodirova** — [LinkedIn](https://www.linkedin.com/in/sevara-bakhodirova-485102205/)
+- **Rashad Hosseini** — [LinkedIn](https://www.linkedin.com/in/rashad-hosseini/)
+- **Maria** — [LinkedIn](https://www.linkedin.com/in/mariapapz)
+
 ## Links
 
 - **Live app:** https://heard-iota.vercel.app/live
