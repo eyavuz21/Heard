@@ -12,6 +12,10 @@
 **🚀 Try it live:** [heard-iota.vercel.app/live](https://heard-iota.vercel.app/live)
 **🎬 Demo video:** [youtu.be/GoWUyqR2fKM](https://youtu.be/GoWUyqR2fKM)
 
+![Four screens of Heard: starting a conversation; the other person's turn transcribed as "What would you like to drink today?"; recording the user's reply; and the confirm screen showing "i would like a cappuccino with cinnamon" at 96% confidence, with each word tappable to fix and Correct / Wrong buttons.](docs/demo.jpeg)
+
+*The whole loop: listen → Speak → recover → confirm → speak aloud. Nothing is spoken until the user taps Correct.*
+
 ---
 
 ## The problem
