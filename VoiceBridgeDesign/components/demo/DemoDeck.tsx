@@ -5,9 +5,16 @@ import Link from "next/link";
 import { LandingGlobs } from "@/components/landing/LandingGlobs";
 import { DemoVideoSlot } from "@/components/demo/DemoVideoSlot";
 import { DemoTechPoints } from "@/components/demo/DemoTechPoints";
+import { SyncedVideoPair } from "@/components/demo/SyncedVideoPair";
 import { demoSlides, type DemoSlide } from "@/lib/demo-slides";
 
-function SlideBody({ slide }: { slide: DemoSlide }) {
+function SlideBody({
+  slide,
+  active,
+}: {
+  slide: DemoSlide;
+  active: boolean;
+}) {
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col justify-center px-1">
       <div
@@ -47,7 +54,16 @@ function SlideBody({ slide }: { slide: DemoSlide }) {
         ) : null}
       </div>
 
-      {slide.kind === "video" ? (
+      {slide.kind === "video" && slide.sync ? (
+        <SyncedVideoPair
+          key={`${slide.id}-synced`}
+          left={slide.left}
+          right={slide.right}
+          active={active}
+        />
+      ) : null}
+
+      {slide.kind === "video" && !slide.sync ? (
         <div
           key={`${slide.id}-videos`}
           className="story-fade mx-auto mt-7 flex w-full max-w-4xl flex-col items-stretch gap-5 sm:mt-8 sm:flex-row sm:items-start sm:gap-8"
@@ -56,12 +72,14 @@ function SlideBody({ slide }: { slide: DemoSlide }) {
             label={slide.left.label}
             caption={slide.left.caption}
             src={slide.left.src}
+            media={slide.left.media}
             side="left"
           />
           <DemoVideoSlot
             label={slide.right.label}
             caption={slide.right.caption}
             src={slide.right.src}
+            media={slide.right.media}
             side="right"
           />
         </div>
@@ -182,7 +200,7 @@ export function DemoDeck() {
       >
         <div className="sticky top-0 flex h-dvh flex-col px-6 pb-8 pt-[max(4.5rem,calc(env(safe-area-inset-top)+3.5rem))] md:px-10">
           <div className="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto">
-            <SlideBody slide={slide} />
+            <SlideBody slide={slide} active />
           </div>
 
           <div className="mx-auto mt-6 flex w-full max-w-sm flex-col items-center gap-5">

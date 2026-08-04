@@ -10,6 +10,10 @@ export type DemoPanel = {
    * Leave null for the empty template slot.
    */
   src: string | null;
+  /** Defaults to video. Use image for screenshot comparisons. */
+  media?: "video" | "image";
+  /** Mute this panel’s media (synced pairs often mute the UI side). */
+  muted?: boolean;
 };
 
 type DemoSlideBase = {
@@ -28,6 +32,8 @@ export type DemoVideoSlide = DemoSlideBase & {
   kind: "video";
   left: DemoPanel;
   right: DemoPanel;
+  /** Keep both clips locked for play / pause / seek / rate. */
+  sync?: boolean;
 };
 
 export type DemoTechSlide = DemoSlideBase & {
@@ -60,15 +66,17 @@ export const demoSlides: DemoSlide[] = [
     eyebrow: "Live",
     title: "Be understood in the moment.",
     body: "They speak. Heard listens to the room, recovers what was meant, and says it aloud — after a confirm.",
+    sync: true,
     left: {
       label: "Speaker",
       caption: "Dysarthric speech",
-      src: null,
+      src: "/demo/live_speaker_cropped.mov",
     },
     right: {
       label: "Heard · Live",
       caption: "Ambient → Speak → Confirm",
-      src: null,
+      src: "/demo/live_ui_sped.mov",
+      muted: true,
     },
   },
   {
@@ -78,14 +86,16 @@ export const demoSlides: DemoSlide[] = [
     title: "Ordinary transcription isn’t enough.",
     body: "Same speech. Generic tools guess. Heard recovers — grounded in the conversation.",
     left: {
-      label: "Generic transcription",
-      caption: "Non-personalised STT",
-      src: null,
+      label: "ChatGPT",
+      caption: "Ordinary transcription",
+      src: "/demo/chatgpt_transcription.png",
+      media: "image",
     },
     right: {
       label: "Heard",
       caption: "Recovered + confirmed",
-      src: null,
+      src: "/demo/heard_transcription.png",
+      media: "image",
     },
   },
   {
@@ -119,32 +129,16 @@ export const demoSlides: DemoSlide[] = [
     eyebrow: "Share",
     title: "Being understood doesn’t stop at the counter.",
     body: "Speak once, confirm, then send a clear voice note or text on the channels they already use.",
+    sync: true,
     left: {
       label: "Speaker",
       caption: "Message to share",
-      src: null,
+      src: "/demo/share_speaker.mov",
     },
     right: {
       label: "Heard · Share",
       caption: "Confirm → send",
-      src: null,
-    },
-  },
-  {
-    kind: "video",
-    id: "my-words",
-    eyebrow: "My Words",
-    title: "It learns your voice as you use it.",
-    body: "Every confirm writes a training pair. Next time, the same word resolves first-pass — personal vocabulary that compounds.",
-    left: {
-      label: "Speaker",
-      caption: "Words that used to need a tap",
-      src: null,
-    },
-    right: {
-      label: "Heard · My Words",
-      caption: "Vocabulary · still learning",
-      src: null,
+      src: "/demo/share_ui.mov",
     },
   },
 ];
