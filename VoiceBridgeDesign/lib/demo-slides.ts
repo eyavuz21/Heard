@@ -70,12 +70,12 @@ export const demoSlides: DemoSlide[] = [
     left: {
       label: "Speaker",
       caption: "Dysarthric speech",
-      src: "/demo/live_speaker_cropped.mov",
+      src: "/demo/live_speaker_cropped.mp4",
     },
     right: {
       label: "Heard · Live",
       caption: "Ambient → Speak → Confirm",
-      src: "/demo/live_ui_sped.mov",
+      src: "/demo/live_ui_sped.mp4",
       muted: true,
     },
   },
@@ -133,12 +133,12 @@ export const demoSlides: DemoSlide[] = [
     left: {
       label: "Speaker",
       caption: "Message to share",
-      src: "/demo/share_speaker.mov",
+      src: "/demo/share_speaker.mp4",
     },
     right: {
       label: "Heard · Share",
       caption: "Confirm → send",
-      src: "/demo/share_ui.mov",
+      src: "/demo/share_ui.mp4",
     },
   },
 ];

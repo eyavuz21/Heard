@@ -4,7 +4,10 @@ import { useEffect, useRef } from "react";
 import { DemoVideoSlot } from "@/components/demo/DemoVideoSlot";
 import type { DemoPanel } from "@/lib/demo-slides";
 
-const DRIFT_SEC = 0.12;
+/** Only hard-seek when drift is clearly out of sync (buffering noise is smaller). */
+const DRIFT_SEC = 0.45;
+/** Minimum gap between automatic drift seeks so buffering can't thrash. */
+const DRIFT_COOLDOWN_MS = 1500;
 
 type SyncedVideoPairProps = {
   left: DemoPanel;
@@ -13,9 +16,14 @@ type SyncedVideoPairProps = {
   active?: boolean;
 };
 
+function isBuffering(video: HTMLVideoElement) {
+  return video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA;
+}
+
 /**
  * Two videos that stay locked: play, pause, seek, and rate changes on either
- * side are mirrored to the other. Drift is corrected while playing.
+ * side are mirrored to the other. Drift correction is soft — skipped while
+ * either side is buffering, and rate-limited so network stalls don't thrash.
  */
 export function SyncedVideoPair({
   left,
@@ -25,6 +33,7 @@ export function SyncedVideoPair({
   const leftRef = useRef<HTMLVideoElement>(null);
   const rightRef = useRef<HTMLVideoElement>(null);
   const syncingRef = useRef(false);
+  const lastDriftSeekRef = useRef(0);
 
   useEffect(() => {
     const a = leftRef.current;
@@ -43,7 +52,10 @@ export function SyncedVideoPair({
       }
     };
 
-    const bind = (source: HTMLVideoElement, target: HTMLVideoElement) => {
+    const bindControls = (
+      source: HTMLVideoElement,
+      target: HTMLVideoElement,
+    ) => {
       const onPlay = () => {
         withSyncLock(() => {
           if (target.paused) void target.play().catch(() => undefined);
@@ -55,9 +67,14 @@ export function SyncedVideoPair({
         });
       };
       const onSeek = () => {
+        if (isBuffering(source) || isBuffering(target)) return;
         withSyncLock(() => {
-          if (Math.abs(target.currentTime - source.currentTime) > 0.03) {
-            target.currentTime = source.currentTime;
+          const t = Math.min(
+            source.currentTime,
+            Number.isFinite(target.duration) ? target.duration : source.currentTime,
+          );
+          if (Math.abs(target.currentTime - t) > 0.05) {
+            target.currentTime = t;
           }
         });
       };
@@ -68,48 +85,64 @@ export function SyncedVideoPair({
           }
         });
       };
-      const onTimeUpdate = () => {
-        if (syncingRef.current || source.paused) return;
-        if (Math.abs(target.currentTime - source.currentTime) > DRIFT_SEC) {
-          withSyncLock(() => {
-            target.currentTime = source.currentTime;
-            if (source.paused !== target.paused) {
-              if (source.paused) target.pause();
-              else void target.play().catch(() => undefined);
-            }
-          });
-        }
-      };
 
       source.addEventListener("play", onPlay);
       source.addEventListener("pause", onPause);
-      source.addEventListener("seeking", onSeek);
       source.addEventListener("seeked", onSeek);
       source.addEventListener("ratechange", onRate);
-      source.addEventListener("timeupdate", onTimeUpdate);
 
       return () => {
         source.removeEventListener("play", onPlay);
         source.removeEventListener("pause", onPause);
-        source.removeEventListener("seeking", onSeek);
         source.removeEventListener("seeked", onSeek);
         source.removeEventListener("ratechange", onRate);
-        source.removeEventListener("timeupdate", onTimeUpdate);
       };
     };
 
-    const unbindA = bind(a, b);
-    const unbindB = bind(b, a);
+    // Drift: left leads only — avoids mutual seek thrash.
+    const onLeaderTimeUpdate = () => {
+      if (syncingRef.current || a.paused) return;
+      if (isBuffering(a) || isBuffering(b)) return;
+
+      const maxT = Math.min(
+        Number.isFinite(a.duration) ? a.duration : Infinity,
+        Number.isFinite(b.duration) ? b.duration : Infinity,
+      );
+      if (!Number.isFinite(maxT) || maxT <= 0) return;
+
+      const leaderT = Math.min(a.currentTime, maxT);
+      if (Math.abs(b.currentTime - leaderT) <= DRIFT_SEC) return;
+
+      const now = performance.now();
+      if (now - lastDriftSeekRef.current < DRIFT_COOLDOWN_MS) return;
+      lastDriftSeekRef.current = now;
+
+      withSyncLock(() => {
+        b.currentTime = leaderT;
+        if (a.paused !== b.paused) {
+          if (a.paused) b.pause();
+          else void b.play().catch(() => undefined);
+        }
+      });
+    };
+
+    const unbindA = bindControls(a, b);
+    const unbindB = bindControls(b, a);
+    a.addEventListener("timeupdate", onLeaderTimeUpdate);
+
     return () => {
       unbindA();
       unbindB();
+      a.removeEventListener("timeupdate", onLeaderTimeUpdate);
     };
   }, [left.src, right.src]);
 
   useEffect(() => {
-    const a = leftRef.current;
-    const b = rightRef.current;
-    if (!a || !b) return;
+    const leftEl = leftRef.current;
+    const rightEl = rightRef.current;
+    if (!leftEl || !rightEl) return;
+    const a: HTMLVideoElement = leftEl;
+    const b: HTMLVideoElement = rightEl;
 
     if (!active) {
       syncingRef.current = true;
@@ -140,10 +173,8 @@ export function SyncedVideoPair({
       try {
         a.currentTime = 0;
         b.currentTime = 0;
-        // Muted side almost always starts; speaker may need a prior gesture (scroll often counts).
         await Promise.allSettled([b.play(), a.play()]);
         if (a.paused && !b.paused) {
-          // Keep them locked even if audio autoplay was blocked.
           a.muted = true;
           await a.play().catch(() => undefined);
         }
