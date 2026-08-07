@@ -57,7 +57,12 @@ class Settings(BaseSettings):
     # vote, and the vote is what catches fabrication. Only genuine stragglers are dropped.
     # Cutting this trades recovery quality for speed -- if you lower it, re-check that the
     # silence probe still gets flagged.
-    sample_timeout_seconds: float = 25.0
+    # 50s, raised from 25s after a measured run lost 3 of 5 samples to this timeout. The
+    # dropped samples take the vote with them: two voters have no majority to correct a
+    # garbled reading, so a stuttered sample became the backbone and its stutters went
+    # straight into the answer. Recovery quality is worth more here than a shorter wait,
+    # and nothing is spoken without a confirm tap regardless.
+    sample_timeout_seconds: float = 50.0
 
     # MINIMAL / LOW / MEDIUM / HIGH, or None for the model's own default.
     thinking_level: str | None = "HIGH"

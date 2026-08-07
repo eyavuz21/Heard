@@ -272,10 +272,29 @@ async def recognise_samples(
     errors: list[BaseException] = []
     for result in results:
         if isinstance(result, BaseException):
-            log.warning("recognition sample failed: %s", result)
+            # Name the exception type explicitly. asyncio.TimeoutError stringifies to ""
+            # and logged as a featureless blank, which hid the failure mode that matters
+            # most here: samples timing out silently.
+            log.warning(
+                "recognition sample failed: %s%s",
+                type(result).__name__,
+                f": {result}" if str(result) else f" after {settings.sample_timeout_seconds}s",
+            )
             errors.append(result)
             continue
         samples.append(result)
+
+    # Losing samples is not fatal, but it is not free either: the vote IS the confidence
+    # signal, and a two-voter vote has no majority to correct a garbled reading. Below
+    # half the requested samples the result is materially weaker than the tuning assumed,
+    # so say so rather than returning a quietly degraded transcript.
+    if errors and len(samples) * 2 < n:
+        log.warning(
+            "DEGRADED: only %d of %d samples survived -- consensus is running on too few "
+            "voters and transcription quality will suffer",
+            len(samples),
+            n,
+        )
 
     if not samples and errors:
         raise RecognitionUnavailable(f"all {len(errors)} samples failed: {errors[0]}")

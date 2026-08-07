@@ -48,7 +48,7 @@ export default function LivePage() {
   const selectedWord =
     selectedWordIndex !== null ? words[selectedWordIndex] : null;
 
-  useAmbientScribe({
+  const { flush: flushAmbient } = useAmbientScribe({
     sessionId,
     enabled: state === "listening",
     onPartial: (text) => setPartnerText(text),
@@ -87,6 +87,17 @@ export default function LivePage() {
     setErrorMessage(null);
     setShowWrongActions(false);
     setSelectedWordIndex(null);
+
+    // Land the other person's last words in the thread BEFORE changing state.
+    //
+    // Switching to "recording" disables the scribe hook, React runs its cleanup, and the
+    // connection closes -- taking any uncommitted speech with it. VAD commits on a pause,
+    // and the pause is exactly when the user taps, so without this the most recent
+    // utterance is the one that goes missing. That utterance is what the prompt calls
+    // "what the other person just said", so losing it makes the recogniser answer a
+    // question it was never shown.
+    await flushAmbient();
+
     setState("recording");
     try {
       await recorder.start();

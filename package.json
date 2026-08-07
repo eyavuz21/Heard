@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev --prefix VoiceBridgeDesign",
+    "build": "npm run build --prefix VoiceBridgeDesign",
+    "start": "npm run start --prefix VoiceBridgeDesign"
+  },
+  "dependencies": {
+    "@elevenlabs/client": "^1.15.2"
+  }
+}

@@ -30,9 +30,15 @@ export function LandingPage() {
           <p className="mt-4 max-w-[17rem] text-[22px] font-semibold leading-snug tracking-tight text-ink animate-fade-up [animation-delay:140ms]">
             Communication that doesn’t demand perfect speech.
           </p>
-          <div className="mt-10 w-full max-w-xs animate-fade-up [animation-delay:220ms]">
+          <div className="mt-10 flex w-full max-w-xs flex-col gap-3 animate-fade-up [animation-delay:220ms]">
             <Link href="/live" className="launch-btn">
               Launch app
+            </Link>
+            <Link
+              href="/demo"
+              className="text-center text-[10px] font-bold uppercase tracking-[0.22em] text-ink-mute transition-colors hover:text-ink"
+            >
+              Demo deck
             </Link>
           </div>
         </section>
